@@ -1,0 +1,456 @@
+@import "tailwindcss";
+
+/*
+  Design tokens. The look follows Supabase's design language: neutral greys with no
+  tint, hairline borders instead of shadows, one emerald accent, and quiet tinted
+  badges for status. Dark is the signature theme; light follows the system setting.
+  --brand is the accent for text, icons and focus; --brand-solid fills buttons.
+*/
+:root {
+  --brand: #2b825b;
+  --brand-solid: #2f7d56;
+  --brand-solid-hover: #276b49;
+  --brand-border: color-mix(in oklab, #3ecf8e 45%, transparent);
+  --brand-soft: color-mix(in oklab, #3ecf8e 12%, transparent);
+  --on-brand: #fafafa;
+
+  --canvas: #fcfcfc;
+  --surface: #ffffff;
+  --surface-2: #f4f4f4;
+  --line: #e6e6e6;
+  --line-strong: #d4d4d4;
+  --ink: #171717;
+  --ink-2: #525252;
+  --ink-3: #7a7a7a;
+
+  --c-green: #30a46c;
+  --c-orange: #f76b15;
+  --c-red: #e5484d;
+  --c-purple: #8e4ec6;
+  --c-blue: #0090ff;
+  --c-pink: #d6409f;
+  --c-teal: #12a594;
+  --c-indigo: #3e63dd;
+  --c-grey: #8d8d8d;
+  --c-dark: #3a3a3a;
+
+  --warn-bg: color-mix(in oklab, #f76b15 10%, var(--surface));
+  --warn-ink: #9a3f07;
+  --glow: color-mix(in oklab, #3ecf8e 9%, transparent);
+  --shadow: none;
+  --radius: 12px;
+  color-scheme: light;
+}
+
+/* Dark: the system preference, unless the page is pinned light (and pinnable dark). */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --brand: #3ecf8e;
+    --brand-solid: #006239;
+    --brand-solid-hover: #007545;
+    --brand-border: color-mix(in oklab, #3ecf8e 30%, transparent);
+    --brand-soft: color-mix(in oklab, #3ecf8e 10%, transparent);
+    --canvas: #141414;
+    --surface: #1a1a1a;
+    --surface-2: #232323;
+    --line: #2a2a2a;
+    --line-strong: #3a3a3a;
+    --ink: #ededed;
+    --ink-2: #a1a1a1;
+    --ink-3: #7c7c7c;
+    --c-green: #3ecf8e;
+    --c-orange: #ff801f;
+    --c-red: #ec5d5e;
+    --c-purple: #9a5cd0;
+    --c-blue: #3b9eff;
+    --c-pink: #de51a8;
+    --c-teal: #0eb39e;
+    --c-indigo: #5472e4;
+    --c-grey: #6f6f6f;
+    --c-dark: #b4b4b4;
+    --warn-bg: color-mix(in oklab, #ff801f 12%, var(--surface));
+    --warn-ink: #ffa057;
+    --glow: color-mix(in oklab, #3ecf8e 7%, transparent);
+    color-scheme: dark;
+  }
+}
+
+@theme inline {
+  --color-brand: var(--brand);
+  --color-brand-solid: var(--brand-solid);
+  --color-brand-soft: var(--brand-soft);
+  --color-brand-border: var(--brand-border);
+  --color-canvas: var(--canvas);
+  --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
+  --color-line: var(--line);
+  --color-line-strong: var(--line-strong);
+  --color-ink: var(--ink);
+  --color-ink-2: var(--ink-2);
+  --color-ink-3: var(--ink-3);
+  --color-good: var(--c-green);
+  --color-warn: var(--c-orange);
+  --color-bad: var(--c-red);
+  --font-sans: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
+  --font-display: var(--font-manrope), var(--font-inter), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--font-source-code), ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+html {
+  -webkit-text-size-adjust: 100%;
+  background: var(--canvas);
+}
+
+body {
+  background: var(--canvas);
+  font-feature-settings: "cv11", "ss01";
+  color: var(--ink);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  min-height: 100dvh;
+}
+
+/* iOS: 16px inputs prevent zoom on focus. */
+input,
+select,
+textarea {
+  font-size: 16px;
+}
+
+:focus-visible {
+  outline: 2px solid var(--brand);
+  outline-offset: 2px;
+}
+
+@layer components {
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+  }
+  .card-pad {
+    padding: 1.1rem 1.15rem;
+  }
+  /* The featured card: a hairline emerald border and a soft glow from one corner. */
+  .card-brand {
+    border-color: var(--brand-border);
+    background:
+      radial-gradient(120% 90% at 100% 0%, var(--glow), transparent 60%),
+      var(--surface);
+  }
+  .h-display {
+    font-family: var(--font-display);
+    letter-spacing: -0.015em;
+  }
+  /* Small labels are set in mono caps, the way Supabase labels sections. */
+  .eyebrow {
+    font-family: var(--font-mono);
+    font-size: 0.7rem;
+    font-weight: 500;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--ink-3);
+  }
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.4rem;
+    min-height: 38px;
+    padding: 0 0.9rem;
+    border-radius: 8px;
+    border: 1px solid transparent;
+    font-weight: 500;
+    font-size: 0.875rem;
+    transition: background 0.15s, color 0.15s, border-color 0.15s;
+    white-space: nowrap;
+  }
+  .btn-primary {
+    background: var(--brand-solid);
+    border-color: var(--brand-border);
+    color: var(--on-brand);
+  }
+  .btn-primary:hover {
+    background: var(--brand-solid-hover);
+  }
+  .btn-ghost {
+    border-color: var(--line-strong);
+    background: var(--surface);
+    color: var(--ink);
+  }
+  .btn-ghost:hover {
+    background: var(--surface-2);
+    border-color: var(--ink-3);
+  }
+  .btn-sm {
+    min-height: 32px;
+    padding: 0 0.7rem;
+    font-size: 0.8rem;
+  }
+  .btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+  .field {
+    width: 100%;
+    min-height: 40px;
+    border: 1px solid var(--line-strong);
+    border-radius: 8px;
+    background: var(--surface-2);
+    color: var(--ink);
+    padding: 0.5rem 0.75rem;
+  }
+  .field::placeholder {
+    color: var(--ink-3);
+  }
+  .field:focus {
+    border-color: var(--brand);
+    outline: none;
+    box-shadow: 0 0 0 3px var(--brand-soft);
+  }
+  .label {
+    display: block;
+    font-size: 0.78rem;
+    font-weight: 500;
+    color: var(--ink-2);
+    margin-bottom: 0.3rem;
+  }
+  /* Badges: tinted fill, hairline border, text in the same hue. Set --pc to the hue. */
+  .pill {
+    --pc: var(--c-grey);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 24px;
+    padding: 0 0.6rem;
+    border-radius: 999px;
+    border: 1px solid color-mix(in oklab, var(--pc) 35%, transparent);
+    background: color-mix(in oklab, var(--pc) 13%, transparent);
+    color: color-mix(in oklab, var(--pc) 70%, var(--ink));
+    font-size: 0.74rem;
+    font-weight: 500;
+    white-space: nowrap;
+  }
+  /* The same tint for avatars and score tiles. */
+  .tint {
+    --pc: var(--c-grey);
+    border: 1px solid color-mix(in oklab, var(--pc) 35%, transparent);
+    background: color-mix(in oklab, var(--pc) 16%, var(--surface));
+    color: color-mix(in oklab, var(--pc) 70%, var(--ink));
+  }
+  .chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3rem;
+    padding: 0.15rem 0.6rem;
+    border-radius: 999px;
+    font-size: 0.75rem;
+    font-weight: 500;
+    background: var(--surface-2);
+    color: var(--ink-2);
+    border: 1px solid var(--line);
+  }
+  .group-bar {
+    border-left: 3px solid var(--group, var(--brand));
+  }
+  .banner-warn {
+    background: var(--warn-bg);
+    color: var(--warn-ink);
+  }
+}
+
+.pb-safe {
+  padding-bottom: max(1rem, env(safe-area-inset-bottom));
+}
+.pt-safe {
+  padding-top: env(safe-area-inset-top);
+}
+
+/* ---- Speed + native-feel polish (feat/speed-polish) ---- */
+
+/* Grid and flex children may shrink below their content, so a long truncated
+   title can never push a card past the edge of a 375px screen. */
+@layer base {
+  .grid > * {
+    min-width: 0;
+  }
+}
+
+/* No grey flash on tap, no accidental text selection on controls, no 300ms delay. */
+html {
+  -webkit-tap-highlight-color: transparent;
+}
+a,
+button,
+summary,
+label:has(> input[type="checkbox"]),
+label:has(> input[type="radio"]) {
+  touch-action: manipulation;
+}
+button,
+[role="button"] {
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+/* Touch screens: every button reaches the 44px tap target, including small ones. */
+@layer components {
+  @media (pointer: coarse) {
+    .btn,
+    .btn-sm,
+    .field {
+      min-height: 44px;
+    }
+  }
+}
+
+/* Focus that is visible on any surface, including the violet card. */
+:focus-visible {
+  outline: 2px solid var(--brand);
+  outline-offset: 2px;
+}
+.bg-brand :focus-visible,
+.text-white:focus-visible,
+.btn-primary:focus-visible {
+  outline-color: var(--ink);
+}
+
+/* Loading skeletons. */
+.skeleton {
+  background: linear-gradient(90deg, var(--surface-2) 25%, var(--line) 50%, var(--surface-2) 75%);
+  background-size: 200% 100%;
+  animation: skeleton-shimmer 1.3s ease-in-out infinite;
+}
+@keyframes skeleton-shimmer {
+  from {
+    background-position: 200% 0;
+  }
+  to {
+    background-position: -200% 0;
+  }
+}
+
+/* Quick-capture: floating button above the tab bar on phones, bottom-right on desktop. */
+.qc-fab {
+  right: max(1rem, env(safe-area-inset-right));
+  bottom: calc(54px + max(1rem, env(safe-area-inset-bottom)) + 0.75rem);
+}
+@media (min-width: 768px) {
+  .qc-fab {
+    bottom: max(1.5rem, env(safe-area-inset-bottom));
+    right: 1.5rem;
+  }
+}
+.qc-sheet {
+  inset: auto 0 0 0;
+  max-height: 100dvh;
+}
+.qc-sheet[open] {
+  animation: qc-up 0.18s ease-out;
+}
+.qc-sheet::backdrop {
+  background: rgb(15 23 42 / 0.45);
+}
+@media (min-width: 768px) {
+  .qc-sheet {
+    inset: 0;
+  }
+}
+@keyframes qc-up {
+  from {
+    transform: translateY(24px);
+    opacity: 0;
+  }
+}
+.qc-chip {
+  display: flex;
+  min-height: 44px;
+  cursor: pointer;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: var(--surface);
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: var(--ink-2);
+}
+.qc-chip-on {
+  border-color: var(--brand);
+  background: var(--brand-soft);
+  color: var(--brand);
+}
+.qc-chip:has(:focus-visible) {
+  outline: 2px solid var(--brand);
+  outline-offset: 2px;
+}
+
+/* Respect "reduce motion": no shimmer, no slide-ins, no smooth scrolling. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* Contrast: the tertiary ink was 2.7:1 on the canvas; these meet WCAG AA (4.5:1)
+   for the small meta text and inactive tab labels that use it. */
+:root {
+  --ink-3: #6b6e7d;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --ink-3: #9a9dba;
+  }
+}
+
+/* Touch screens: compact inline selects (task status, move menu) grow to 44px too. */
+@layer components {
+  @media (pointer: coarse) {
+    select.pill,
+    label > select:not(.field) {
+      min-height: 44px;
+    }
+  }
+}
+
+/* Mission Control's live map: work moving along a line, and a soft pulse around a box that is working. */
+@keyframes map-flow {
+  to {
+    stroke-dashoffset: -32;
+  }
+}
+@keyframes map-pulse {
+  0%,
+  100% {
+    opacity: 0.12;
+  }
+  50% {
+    opacity: 0.5;
+  }
+}
+.map-flow,
+.map-flow-rev {
+  stroke-dasharray: 7 9;
+  animation: map-flow 0.9s linear infinite;
+}
+.map-flow-rev {
+  animation-direction: reverse;
+}
+.map-halo {
+  animation: map-pulse 1.5s ease-in-out infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .map-flow,
+  .map-flow-rev {
+    animation: none;
+  }
+  .map-halo {
+    animation: none;
+    opacity: 0.35;
+  }
+}

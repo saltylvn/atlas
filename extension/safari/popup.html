@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Atlas Autofill</title>
+    <link rel="stylesheet" href="popup.css" />
+  </head>
+  <body>
+    <header>
+      <img src="icons/icon-32.png" alt="" width="20" height="20" />
+      <h1>Atlas Autofill</h1>
+    </header>
+    <p id="synced" class="muted">Checking your answers…</p>
+    <form id="fill">
+      <label>Company <input id="company" autocomplete="off" maxlength="120" /></label>
+      <label>Role <input id="role" autocomplete="off" maxlength="160" /></label>
+      <button type="submit" id="go">Fill this page</button>
+    </form>
+    <p id="result" role="status"></p>
+    <p class="muted small">Fills empty fields only. Never submits, never attaches files, never answers work authorization or demographic questions. Review, then submit yourself.</p>
+    <script src="popup.js"></script>
+  </body>
+</html>

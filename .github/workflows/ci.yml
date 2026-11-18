@@ -1,0 +1,60 @@
+name: CI
+
+# Actions are pinned to full commit SHAs (the comment names the version), so a moved or
+# hijacked tag cannot change what runs here. Dependabot proposes the updates.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci --ignore-scripts
+      - name: Lint
+        run: npm run lint
+      - name: Type check
+        run: npm run typecheck
+      - name: Unit tests
+        run: npm test
+      # Agent evals: each agent's rules scored against labeled cases. A suite below its
+      # threshold fails the build. Also part of the unit tests; run here for the scores table.
+      - name: Agent evals
+        run: npm run evals
+      - name: Dependency audit (production deps)
+        run: npm audit --omit=dev --audit-level=high
+      - name: Build
+        run: npm run build
+
+  secrets:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      # gitleaks lists the pull request's commits to know what to scan.
+      pull-requests: read
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Scan for committed secrets
+        uses: gitleaks/gitleaks-action@ff98106e4c7b2bc287b24eaf42907196329070c7 # v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
