@@ -54,7 +54,8 @@ How it stays worth listening to:
 1. **Facts come from rules.** `observe()` in `lib/domain/mentor.ts` turns your data into
    observations: days since you last applied, reply rate overall and by role, kits waiting
    in the queue, a skill you have that no resume mentions, your best market fit against
-   your first-priority role, whether your LinkedIn opening says that role, the share of
+   your first-priority role, whether your LinkedIn opening says that role (and whether it
+   says "aspiring", "seeking" or "entry level", which read as junior), the share of
    gigs. Each is a count, a rate or a date. A model never produces a number.
 2. **Judgment comes from the model.** Given the observations, it picks at most two that
    matter most now and writes one action each that can be finished today. It must cite

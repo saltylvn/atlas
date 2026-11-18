@@ -353,6 +353,32 @@ Entries for 7–10 November are in git history, on the commits before Atlas repl
 **Limitations:**
 
 - A count is a floor. The throttle is per server instance, and what is refused after a window's row is written reaches the trail only if that instance sees another refusal once the window has closed.
-- Checked by tests, and locally in the real Next runtime against a stand-in database: 401 in under 10 ms, one row per route five seconds later, 300 more refusals in the window added no write, and nothing of the request was in what reached the database. Not checked on the live site: that needs the merge and a deploy.
+- Checked by tests, and locally in the real Next runtime against a stand-in database: 401 in under 10 ms, one row per route five seconds later, 300 more refusals in the window added no write, and nothing of the request was in what reached the database.
+- Checked on the live site after the merge and the deploy, on 18 November 2026: one request with no token to the keep-alive route answered 401, and its row was in the audit trail six seconds later (`1 refused at /api/keepalive: 1 no token, 0 wrong token`).
+- Not yet seen on the live site: the QA Agent's count of these rows. The next scheduled review is Sunday 22 November.
 - In demo mode there is no database, so nothing is recorded.
 - 678 tests, 454 eval cases.
+
+### 2026-11-18 — Solutions Engineer leads
+
+**Shipped:**
+
+- The role order now leads with Solutions Engineer, then Software Engineer, then AI Engineer, AI + Automation Engineer, AI Workflow Engineer, Forward Deployed Engineer and GTM Engineer. This is the fallback order in code; the live order still comes from Notion.
+- Integration Engineer and Integrations Engineer count as Solutions Engineer. "AI Integration Engineer" still reads as AI Engineer, because the longer title phrase wins.
+- Level in the ranking: "Engineer I" and "Engineer II" (also "Level 2" and "L2") rank higher. An Associate or Specialist title with no base pay posted ranks lower, and the match says "salary not listed · Associate title".
+- Base pay against variable pay: a posted figure next to OTE, on-target earnings, total compensation or "including commission" is marked "includes variable pay". When the posting also states the base, the base is the figure shown and checked against the floor, so "OTE $140k ($95k base)" reads as $95k.
+- The Mentor flags "aspiring", "seeking" and "entry level" in the first lines of the LinkedIn text.
+- Target roles shows the positioning notes ("How to present yourself"), and the LinkedIn tune-up gained three tips from them.
+
+**Decisions:**
+
+- The words that say what a figure covers are read only right next to the figure, and the nearest one wins, so "$95k base, OTE $140k" is a $95k base.
+- A figure that includes variable pay cannot rule a posting out unless even that figure is under the floor. It counts for less in the ranking than a base figure.
+- An Associate or Specialist title with a posted salary that clears the floor is not marked down.
+- No database change: the new pay labels fit the existing 40-character column.
+
+**Limitations:**
+
+- Only the first few hundred characters of a posting are read, so a base stated further down is not seen.
+- "Specialist" titles rarely match a target role at all, so the rule mostly affects "Associate ... Engineer" titles.
+- 684 tests, 485 eval cases.

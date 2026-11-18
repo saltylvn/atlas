@@ -100,6 +100,19 @@ export const CAREER_DIRECTION = {
       source: { label: "Level Up Coding", url: "https://levelup.gitconnected.com/the-10-ai-skills-employers-actually-asked-for-in-32-924-hacker-news-job-posts-and-prompt-239a8272445d" },
     },
   ],
+  /** How to present yourself (Fable, 18 Nov 2026). The lead title is also the first role in your own order. */
+  positioning: {
+    on: "2026-11-18",
+    lead: "Solutions Engineer",
+    why: "Lead with Solutions Engineer: it matches the most postings for what you build, which is integrations, workflow automation and AI agents.",
+    notes: [
+      "Name the title in the first two lines of your headline and About. Skip \"aspiring\" and \"seeking\": they read as junior.",
+      "Say your level without writing \"entry level\", which anchors pay low. \"With senior engineers to learn from\" says entry to mid.",
+      "Lead with what you built. Keep your current job to one sentence and put the detail in Experience.",
+      "Mention MCP as part of your daily workflow until one of your repos has an MCP server you built. Then it can move into the headline.",
+      "At entry to mid level, Specialist and Associate titles usually post below your salary floor. Look for Engineer titles at level I or II, and check whether a posted number is base pay or includes variable pay.",
+    ],
+  },
   caveat: "Much of this data comes from recruiters and vendors, and growth figures vary by source, so treat the numbers as directional.",
   notion: "https://app.notion.com/p/417a12ce4491815b84bde7014532320e",
 } as const;

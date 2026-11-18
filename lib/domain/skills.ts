@@ -185,6 +185,9 @@ export function linkedinTuneup(roles: TargetRole[], demand: SkillCount[], matche
     aboutTips: [
       `Open with the roles you want, in order: ${roles.map((r) => r.name).slice(0, 3).join(", ")}.`,
       titleWords.length ? `Use the titles employers post for your top role: ${titleWords.join(", ")}.` : "Use the job titles employers actually post for your top role.",
+      "Name the title you want in the first two lines. Skip \"aspiring\" and \"seeking\": they read as junior.",
+      "Say your level without writing \"entry level\", which anchors pay low. \"With senior engineers to learn from\" says entry to mid.",
+      "Keep your current job to one sentence here, and put the detail in Experience.",
       "Lead with one shipped project (Atlas): what it does, the stack, and the result in numbers (hours saved, cost per run).",
       "Use market vocabulary: multi-agent orchestration (supervisor pattern), MCP and API integration, evals and observability.",
       "Drop \"AI fluent\" and \"prompt engineering\" as headline skills; employers ask for evals and MCP instead.",

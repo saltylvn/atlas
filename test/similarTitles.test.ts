@@ -36,7 +36,7 @@ describe("Similar job titles", () => {
     ]);
     expect(ai).toMatchObject({ matches: 3, applications: 1 });
     expect(ai.searchedFor).toContain("AI Integration Engineer");
-    expect(groups[0]!.role.name).toBe("AI Engineer");
+    expect(groups[0]!.role.name).toBe("Solutions Engineer");
     expect(byName("Solutions Engineer").similar.map((t) => t.title)).toEqual(["Solutions Architect"]);
     expect(byName("AI Workflow Engineer").similar).toEqual([]);
   });

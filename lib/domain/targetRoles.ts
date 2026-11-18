@@ -13,7 +13,18 @@ export interface TargetRole {
   titles: string[];
 }
 
+// Order as of 18 Nov 2026: Solutions Engineer leads (the title that matches the most
+// postings for what you build), then Software Engineer. Integration Engineer counts as
+// Solutions Engineer: it is the same work under another name.
 export const TARGET_ROLES: readonly TargetRole[] = [
+  {
+    name: "Solutions Engineer",
+    titles: ["solutions engineer", "solution engineer", "technical solutions engineer", "solutions architect", "integration engineer", "integrations engineer", "sales engineer", "customer engineer", "pre sales engineer", "presales engineer"],
+  },
+  {
+    name: "Software Engineer",
+    titles: ["software engineer", "software developer", "full stack engineer", "fullstack engineer", "full stack developer", "backend engineer", "product engineer", "typescript engineer", "python engineer"],
+  },
   {
     name: "AI Engineer",
     titles: ["ai engineer", "applied ai engineer", "ai integration engineer", "generative ai engineer", "genai engineer", "llm engineer", "ai ml engineer", "ai software engineer"],
@@ -27,16 +38,8 @@ export const TARGET_ROLES: readonly TargetRole[] = [
     titles: ["ai workflow engineer", "workflow automation engineer", "workflow engineer", "ai workflow developer", "ai operations engineer", "ai agent engineer", "agentic ai engineer", "agentic engineer", "agent engineer", "agentic"],
   },
   {
-    name: "Software Engineer",
-    titles: ["software engineer", "software developer", "full stack engineer", "fullstack engineer", "full stack developer", "backend engineer", "product engineer", "typescript engineer", "python engineer"],
-  },
-  {
     name: "Forward Deployed Engineer",
     titles: ["forward deployed engineer", "forward deployed software engineer", "forward deployed ai engineer", "forward deployed", "fde", "agent deployment engineer", "deployed engineer", "deployment engineer"],
-  },
-  {
-    name: "Solutions Engineer",
-    titles: ["solutions engineer", "solution engineer", "technical solutions engineer", "solutions architect", "sales engineer", "customer engineer", "pre sales engineer", "presales engineer"],
   },
   {
     name: "GTM Engineer",
@@ -50,7 +53,7 @@ export const TARGET_ROLES: readonly TargetRole[] = [
  * your list. A role here never becomes a target without your approval.
  */
 export const CANDIDATE_ROLES: readonly TargetRole[] = [
-  { name: "Implementation Engineer", titles: ["implementation engineer", "technical implementation engineer", "integration engineer", "integrations engineer", "implementation consultant", "onboarding engineer"] },
+  { name: "Implementation Engineer", titles: ["implementation engineer", "technical implementation engineer", "implementation consultant", "onboarding engineer"] },
   { name: "Customer Success Engineer", titles: ["customer success engineer", "technical account manager", "technical customer success manager", "technical success manager"] },
   { name: "Developer Advocate", titles: ["developer advocate", "developer relations engineer", "developer relations", "devrel engineer", "developer evangelist"] },
   { name: "AI Consultant", titles: ["ai consultant", "ai solutions consultant", "ai implementation consultant", "ai strategist", "ai transformation consultant"] },

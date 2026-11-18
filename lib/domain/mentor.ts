@@ -209,6 +209,9 @@ export function observe(input: MentorInput): Observation[] {
     const head = profile.slice(0, 220);
     const roleWords = topRole.toLowerCase().split(/\s+/).filter((w) => w.length > 2);
     if (topRole && !roleWords.every((w) => mentions(head, w))) add({ id: "profile:headline", area: "profile", severity: 58, metric: topRole, fact: `The first lines of your LinkedIn profile do not say ${topRole}, your first-priority role.`, action: `Lead the headline with "${topRole}" and one proof point. Recruiters search by title.` });
+    // Career direction (18 Nov 2026): name the title you want. "Aspiring" and "seeking" read as junior, and "entry level" anchors pay low.
+    const weak = /\b(aspiring|seeking|entry[- ]level)\b/i.exec(head);
+    if (weak) add({ id: "profile:wording", area: "profile", severity: 44, metric: weak[1]!.toLowerCase(), fact: `The first lines of your LinkedIn profile say "${weak[1]!.toLowerCase()}".`, action: `Take it out and name the title you want${topRole ? `, "${topRole}"` : ""}. That word reads as junior and can anchor your pay low.` });
     if (profile.length < 500) add({ id: "profile:thin", area: "profile", severity: 36, metric: String(profile.length), fact: `Your LinkedIn text is ${profile.length} characters long.`, action: "Give About three short paragraphs: what you build, proof with numbers, and what you want next." });
     if (market && market.total > 0) {
       const demanded = [...new Set(market.roles.flatMap((r) => r.topSkills.filter((s) => s.share >= 0.2).map((s) => s.skill)))];

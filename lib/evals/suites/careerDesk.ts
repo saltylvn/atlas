@@ -129,6 +129,10 @@ const mentorCases: EvalCase[] = [
   { name: "When resumes could not be read, it does not claim they are missing", expected: "not raised", actual: () => has(base({ resumes: null }), "resume:no-text") },
   { name: "A LinkedIn opening that never says your first-priority role", expected: "raised", actual: () => has(base({ linkedin: `Builder of things. ${"I like software and teams. ".repeat(30)}` }), "profile:headline") },
   { name: "No LinkedIn text pasted: asks for it instead of reviewing nothing", expected: "raised", actual: () => has(base({ linkedin: "" }), "profile:missing") },
+  { name: "A headline that says \"aspiring\" before the title", expected: "raised", actual: () => has(base({ linkedin: `Aspiring ${ROLES[0]!.name} | integrations and automation. ${"I build integrations and ship them. ".repeat(20)}` }), "profile:wording") },
+  { name: "\"Entry-level\" in the first lines", expected: "raised", actual: () => has(base({ linkedin: `${ROLES[0]!.name}, entry-level | integrations and automation. ${"I build integrations and ship them. ".repeat(20)}` }), "profile:wording") },
+  { name: "A headline that names the title plainly", expected: "not raised", actual: () => has(base({ linkedin: `${ROLES[0]!.name} | integrations and automation. ${"I build integrations and ship them. ".repeat(20)}` }), "profile:wording") },
+  { name: "\"Seeking\" far down the About, not in the first lines", expected: "not raised", actual: () => has(base({ linkedin: `${ROLES[0]!.name} | integrations and automation. ${"I build integrations and ship them. ".repeat(20)} Seeking a collaborative team.` }), "profile:wording") },
   { name: "Gigs taking more than their share of the week", expected: "raised", actual: () => has(base({ applications: Array.from({ length: 6 }, (_, i) => app({ type: i < 4 ? "gig" : "full-time", appliedOn: day(-2), statusAt: `${day(-2)}T15:00:00Z` })) }), "gigs:share") },
   { name: "Meeting the day's plan is acknowledged", expected: "raised", actual: () => has(base({ slot: "evening", applications: Array.from({ length: 3 }, () => app({ appliedOn: TODAY, statusAt: `${TODAY}T15:00:00Z` })) }), "win:plan") },
   // Memory

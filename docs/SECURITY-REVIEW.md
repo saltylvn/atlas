@@ -175,6 +175,7 @@ database held no trigger, function or test row from the run.
   - **The 401 does not wait.** The route counts and answers; the write runs after the response has been sent. A write that fails is logged, keeps its count for the next row, is not tried again in that window, and changes nothing about the answer.
   - **Reviewed every week.** The QA Agent counts the week's records by rules. Five or more refused requests raise a finding with the count as evidence: low from 5, medium from 25, high from 250 (a high one shows on Today). Fewer than five is noted on the check and raises nothing.
   - **No database change.** The row fits `audit_events` as it is, and the table stays append-only.
+  - **Checked on the live site** (18 November 2026, after the merge and the deploy). One request with no token to `/api/keepalive` answered 401, and the row `1 refused at /api/keepalive: 1 no token, 0 wrong token` was in the audit trail six seconds later. So the host does keep the function alive for the five-second wait and the write, and the insert works on the live table. The QA Agent's count of these rows has not run there yet: the next scheduled review is Sunday 22 November.
 
 ## Not built (recommended next)
 
