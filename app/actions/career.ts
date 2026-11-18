@@ -10,7 +10,7 @@ import { findJobMail } from "@/lib/connections/google";
 import { approvalFor, targetRoleFor } from "@/lib/domain/applications";
 import { applyThumb } from "@/lib/applyQueue";
 import { savedJobKey } from "@/lib/domain/applyPlan";
-import { jobType, parsePay, roleFor } from "@/lib/domain/careerAgent";
+import { jobType, parsePay, payLabel, roleFor } from "@/lib/domain/careerAgent";
 import { scrub, scrubPhones } from "@/lib/domain/knowledge";
 import { extractSkills } from "@/lib/domain/skills";
 import { ANSWER_BANK } from "@/lib/domain/careerPrep";
@@ -325,7 +325,7 @@ export async function saveJob(_: unknown, fd: FormData): Promise<ActionResult> {
       source: "Saved by you",
       location: "",
       role,
-      payText: (parsePay(text)?.text ?? "salary not listed").slice(0, 40),
+      payText: payLabel(j.title, parsePay(text)),
       postedAt: null,
       score: 100,
       shownOn: ctx.today,

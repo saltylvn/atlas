@@ -5,7 +5,7 @@ import type { Store } from "@/lib/data/store";
 import { SLOT_LABEL } from "@/lib/domain/briefSchedule";
 import { fromAppliedCompany, openCompanies, ROLE_NOT_IN_EMAIL, rolesFromMail, rolesToLookUp, targetRoleFor, trackFromEmail, type JobMail } from "@/lib/domain/applications";
 import type { Scorecard } from "@/lib/domain/careerPrep";
-import { candidates, careerAgentReport, pick, roleFor, tasteFrom, type CareerAgentResult, type CareerPrefs } from "@/lib/domain/careerAgent";
+import { candidates, careerAgentReport, payLabel, pick, roleFor, tasteFrom, type CareerAgentResult, type CareerPrefs } from "@/lib/domain/careerAgent";
 import { followUpEmail, followUpsDue, isScorecardDay, weeklyScorecard } from "@/lib/domain/careerPrep";
 import { prefsFrom, tagInbox } from "@/lib/domain/emailAgent";
 import { readVerdict, roleFromText } from "@/lib/domain/jobMailText";
@@ -233,7 +233,7 @@ export async function careerAgentWork(ctx: Context, slot: BriefSlot, persist: St
       source: c.source.slice(0, 80),
       location: c.location.slice(0, 200),
       role: c.role.name.slice(0, 80),
-      payText: c.pay?.text ?? "salary not listed",
+      payText: payLabel(c.title, c.pay),
       postedAt: c.postedAt,
       score: Math.max(-100, Math.min(200, Math.round(c.score))),
       shownOn: ctx.today,

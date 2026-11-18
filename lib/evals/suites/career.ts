@@ -1,4 +1,4 @@
-import { jobType, parsePay, payFits, roleFor, whereFits } from "@/lib/domain/careerAgent";
+import { jobType, parsePay, payFits, roleFor, titleLevel, whereFits } from "@/lib/domain/careerAgent";
 import { isDemoOnly } from "@/lib/domain/careerDirection";
 import { TARGET_ROLES } from "@/lib/domain/targetRoles";
 import type { EvalCase, EvalSuite } from "../types";
@@ -42,6 +42,10 @@ const TITLES: [string, string][] = [
   ["Full Stack Engineer (TypeScript/React/Node)", "Software Engineer"],
   ["Backend Engineer, AI Coding Task Design", "Software Engineer"],
   ["Software Engineer (L4)", "Software Engineer"],
+  // Integration Engineer is Solutions Engineer under another name
+  ["Integration Engineer", "Solutions Engineer"],
+  ["Integrations Engineer II", "Solutions Engineer"],
+  ["API Integration Engineer", "Solutions Engineer"],
   // Skipped: too senior, not engineering, or not a real opening
   ["Staff Software Engineer", SKIP],
   ["Principal AI Engineer", SKIP],
@@ -76,6 +80,39 @@ const PAY: [string, string, string][] = [
   ["Solutions Engineer", "Competitive salary and equity", "full-time fits"],
   ["AI Automation Engineer (Contract)", "$60/hr, 3 months", "gig fits"],
   ["Automation Developer, part-time", "$30 per hour", "gig below floor"],
+  // The floor is checked against the base, not the OTE
+  ["Solutions Engineer", "OTE $140k ($95k base)", "full-time below floor"],
+  ["Solutions Engineer", "OTE $160k ($125k base)", "full-time fits"],
+  ["Sales Engineer", "Base salary: $95,000 – $110,000 plus commission", "full-time below floor"],
+  ["Solutions Engineer", "$140k - $160k OTE", "full-time fits"],
+  ["Solutions Engineer", "$90k - $110k OTE", "full-time below floor"],
+];
+
+/** [posting text, what the posted figure covers] */
+const BASIS: [string, string][] = [
+  ["$120k - $150k", "not said"],
+  ["$120k + equity", "not said"],
+  ["$120k-$150k, OTE $180k", "not said"],
+  ["Base salary: $95,000 – $110,000 plus commission", "base"],
+  ["$125,000 plus annual bonus", "base"],
+  ["$95k base, OTE $140k", "base"],
+  ["OTE $140k ($95k base)", "base"],
+  ["$140k - $160k OTE", "variable"],
+  ["On-target earnings (OTE) of $150k–$180k", "variable"],
+  ["Total compensation: $150k–$190k", "variable"],
+  ["$130k including bonus", "variable"],
+];
+
+/** [title, how its level reads] */
+const LEVEL: [string, string][] = [
+  ["Solutions Engineer II", "early"],
+  ["Software Engineer I", "early"],
+  ["Integration Engineer, Level 2", "early"],
+  ["Associate Solutions Engineer", "low"],
+  ["Solutions Engineering Specialist", "low"],
+  ["Solutions Engineer", "none"],
+  ["Software Engineer III", "none"],
+  ["Senior Solutions Engineer", "none"],
 ];
 
 /** [title, posting text, expected] */
@@ -98,12 +135,14 @@ const cases: EvalCase[] = [
     },
   })),
   ...DEMO.map(([title, text, expected]): EvalCase => ({ name: `Pre-sales · ${title}: ${text.slice(0, 60)}…`, expected, actual: () => (isDemoOnly(title, text) ? "demo-only" : "builds") })),
+  ...BASIS.map(([text, expected]): EvalCase => ({ name: `Base or variable · ${text}`, expected, actual: () => parsePay(text)?.basis ?? "not said" })),
+  ...LEVEL.map(([title, expected]): EvalCase => ({ name: `Level · ${title}`, expected, actual: () => titleLevel(title) ?? "none" })),
 ];
 
 export const careerSuite: EvalSuite = {
   agent: "career",
   title: "Matching jobs to your roles",
-  what: "Maps a posted title to one of your seven roles (or skips it), and checks location, pay floor and demo-only pre-sales.",
+  what: "Maps a posted title to one of your seven roles (or skips it), and checks location, pay floor, base against variable pay, the level in a title and demo-only pre-sales.",
   threshold: 0.95,
   cases,
 };

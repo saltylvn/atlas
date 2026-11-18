@@ -5,10 +5,12 @@
 // matches never repeat the morning's, nor any earlier day's). A posting is a match when:
 //   - its title is one of your target roles (lib/domain/targetRoles.ts), entry to mid
 //     level (staff, principal, lead, manager, director and above are out; senior is
-//     kept but ranked lower);
+//     kept but ranked lower; "Engineer I" and "Engineer II" rank higher; an Associate or
+//     Specialist title with no base pay posted ranks lower, because those usually pay less);
 //   - it is remote and open to the U.S., or hybrid/onsite in Salt Lake County;
 //   - its pay, when posted, meets your pay floors (a yearly salary and an hourly rate, set in Settings; none by default).
-//     No posted pay is fine: it is marked "salary not listed";
+//     No posted pay is fine: it is marked "salary not listed". A figure that includes
+//     variable pay (OTE, commission, bonus) is marked so, and the base is used when stated;
 //   - it is fresh: 30 days for full-time, 21 for gigs.
 // Ranking: freshest first (the last 24-48 hours get far more responses), then role
 // priority, remote, posted pay, and your thumbs up/down on earlier matches.
@@ -50,6 +52,12 @@ export interface Pay {
   max: number;
   unit: PayUnit;
   text: string;
+  /**
+   * What the figure covers, when the posting says. "base" is base pay alone. "variable"
+   * means the figure includes commission, bonus or other variable pay (OTE) and the
+   * posting states no base, so the base could be lower than the figure.
+   */
+  basis?: "base" | "variable";
 }
 
 // ---------------------------------------------------------------------------
@@ -58,6 +66,21 @@ export interface Pay {
 const norm = (s: string) => ` ${s.toLowerCase().replace(/&/g, " and ").replace(/[^a-z0-9+]+/g, " ").trim()} `;
 const TOO_SENIOR = / (staff|principal|distinguished|lead|head|director|vp|vice president|manager|chief|cto|architect manager) /;
 const NOT_A_FIT = / (intern|internship|interviewer|qa|quality|test automation|sdet|tester|teacher|instructor|tutor|trainer|recruiter|marketing|sales representative|account executive) /;
+
+// Level words that do not rule a title out but move it up or down the list (career
+// direction, 18 Nov 2026): at entry to mid level, look for Engineer titles at level I or
+// II; Associate and Specialist titles usually post lower pay.
+const EARLY_LEVEL = / (engineer|developer|architect|consultant) (i|ii|1|2) | (level|grade) (i|ii|1|2) | (l1|l2|ic1|ic2) /;
+const LOW_TITLE = / (associate|specialist) /;
+
+export type TitleLevel = "early" | "low" | null;
+
+/** How a title's level reads: "early" for level I or II, "low" for Associate or Specialist. */
+export function titleLevel(title: string): TitleLevel {
+  const t = norm(title);
+  if (LOW_TITLE.test(t)) return "low";
+  return EARLY_LEVEL.test(t) ? "early" : null;
+}
 
 const GENERIC_ROLE = (r: TargetRole) => norm(r.name) === " software engineer ";
 
@@ -124,14 +147,11 @@ const num = (s: string, k: string | undefined) => {
   return k && /k/i.test(k) ? n * 1000 : n;
 };
 
-/** Reads posted USD pay: "$120k-$150k", "$120,000 – $150,000 per year", "$60/hr", "$60-80 per hour". */
-export function parsePay(text: string, fields?: { min?: number; max?: number }): Pay | null {
-  if (fields?.min || fields?.max) {
-    const min = fields.min || fields.max!;
-    const max = fields.max || fields.min!;
-    return { min, max, unit: "year", text: `$${Math.round(min / 1000)}k${max !== min ? `–$${Math.round(max / 1000)}k` : ""}` };
-  }
-  const m = /\$\s?(\d{1,3}(?:,\d{3})+|\d+(?:\.\d+)?)\s?(k)?\s*(?:-|–|—|to)\s*\$?\s?(\d{1,3}(?:,\d{3})+|\d+(?:\.\d+)?)\s?(k)?(\s*(?:\/|per)\s*(?:hr|hour|h)\b)?/i.exec(text);
+type PayFigure = Pay & { at: number; end: number };
+
+/** The first USD pay figure in the text, and where it sits: "$120k-$150k", "$120,000 – $150,000 per year", "$60/hr", "$60-80 per hour". */
+function payAt(text: string): PayFigure | null {
+  const m =/\$\s?(\d{1,3}(?:,\d{3})+|\d+(?:\.\d+)?)\s?(k)?\s*(?:-|–|—|to)\s*\$?\s?(\d{1,3}(?:,\d{3})+|\d+(?:\.\d+)?)\s?(k)?(\s*(?:\/|per)\s*(?:hr|hour|h)\b)?/i.exec(text);
   const single = m ? null : /\$\s?(\d{1,3}(?:,\d{3})+|\d+(?:\.\d+)?)\s?(k)?(\s*(?:\/|per)\s*(?:hr|hour|h)\b)?/i.exec(text);
   const hit = m ?? single;
   if (!hit) return null;
@@ -159,7 +179,74 @@ export function parsePay(text: string, fields?: { min?: number; max?: number }):
   if (min > max) [min, max] = [max, min];
   const unit: PayUnit = hourly ? "hour" : "year";
   const label = hourly ? `$${min}${max !== min ? `–${max}` : ""}/hr` : `$${Math.round(min / 1000)}k${max !== min ? `–$${Math.round(max / 1000)}k` : ""}`;
-  return { min, max, unit, text: label };
+  return { min, max, unit, text: label, at: hit.index, end: hit.index + hit[0].length };
+}
+
+// What a figure covers, read from the words right next to it (career direction, 18 Nov
+// 2026: check whether a posted number is base pay or includes variable).
+const VARIABLE_WORDS = "ote|on[- ]target earnings?|total (?:target )?(?:comp|compensation|cash)|target (?:comp|compensation|earnings)";
+/** Before a figure: "OTE $140k", "total compensation of $150k". */
+const VARIABLE_BEFORE = new RegExp(`\\b(?:${VARIABLE_WORDS})\\b`, "gi");
+const BASE_BEFORE = /\bbase\b/gi;
+/** After a figure: "$140k OTE", "$150k including commission". */
+const VARIABLE_AFTER = new RegExp(`\\b(?:${VARIABLE_WORDS})\\b|\\b(?:including|incl|inclusive of)\\b\\.? (?:\\w+ )?(?:commission|bonus|variable|incentives?)\\b`, "i");
+/** After a figure: "$95k base", "$95k + commission", "$95,000 plus annual bonus": the variable pay comes on top. */
+const BASE_AFTER = /\bbase\b|(?:\+|\bplus\b|\bwith\b) ?(?:\w+ )?(?:commission|bonus|variable|incentives?)\b/i;
+/** Words at the end of a stretch that introduce the next figure: "…, OTE $140k", "… base salary of $95k". */
+const NEXT_LABEL = new RegExp(`\\b(?:${VARIABLE_WORDS}|base(?: salary| pay)?)\\b[^a-z$]*(?:(?:of|is|up to|from|range)[^a-z$]*)?$`, "i");
+
+function basisAt(text: string, at: number, end: number): Pay["basis"] {
+  // Before: only the words since the previous figure. The nearest word wins, so in
+  // "$95k base, OTE $140k" the second figure is the OTE one.
+  const before = (/[^$\d]*$/.exec(text.slice(Math.max(0, at - 40), at)) ?? [""])[0];
+  const last = (re: RegExp) => [...before.matchAll(re)].reduce((i, m) => Math.max(i, m.index ?? -1), -1);
+  const baseBefore = last(BASE_BEFORE);
+  const variableBefore = last(VARIABLE_BEFORE);
+  if (baseBefore >= 0 || variableBefore >= 0) return baseBefore > variableBefore ? "base" : "variable";
+  // After: only the words up to the next figure, without the label that introduces it.
+  const reach = text.slice(end, end + 48);
+  const upToNext = (/^[^$]*/.exec(reach) ?? [""])[0];
+  const after = upToNext.length < reach.length ? upToNext.replace(NEXT_LABEL, "") : upToNext;
+  const baseAfter = after.search(BASE_AFTER);
+  const variableAfter = after.search(VARIABLE_AFTER);
+  if (baseAfter < 0 && variableAfter < 0) return undefined;
+  return variableAfter < 0 || (baseAfter >= 0 && baseAfter < variableAfter) ? "base" : "variable";
+}
+
+const figure = (p: PayFigure): Pay => ({ min: p.min, max: p.max, unit: p.unit, text: p.text });
+
+/**
+ * Reads posted USD pay, and what it covers when the posting says. A figure that includes
+ * variable pay (OTE, commission, bonus) is not your salary: when the posting also states
+ * the base, the base is returned; otherwise the figure is returned marked as variable.
+ */
+export function parsePay(text: string, fields?: { min?: number; max?: number }): Pay | null {
+  if (fields?.min || fields?.max) {
+    const min = fields.min || fields.max!;
+    const max = fields.max || fields.min!;
+    return { min, max, unit: "year", text: `$${Math.round(min / 1000)}k${max !== min ? `–$${Math.round(max / 1000)}k` : ""}` };
+  }
+  const first = payAt(text);
+  if (!first) return null;
+  const basis = basisAt(text, first.at, first.end);
+  if (basis === "base") return { ...figure(first), basis, text: `${first.text} base` };
+  if (basis !== "variable") return figure(first);
+  // The figure includes variable pay. Look a few figures further for the base.
+  let from = first.end;
+  for (let i = 0; i < 3; i++) {
+    const next = payAt(text.slice(from));
+    if (!next) break;
+    if (basisAt(text, from + next.at, from + next.end) === "base") return { ...figure(next), basis: "base", text: `${next.text} base` };
+    from += next.end;
+  }
+  return { ...figure(first), basis, text: `${first.text}, includes variable pay` };
+}
+
+/** What a match shows for pay. An Associate or Specialist title with no base posted says so: those usually pay less. */
+export function payLabel(title: string, pay: Pay | null): string {
+  if (pay) return pay.text.slice(0, 40);
+  const low = LOW_TITLE.exec(norm(title));
+  return low ? `salary not listed · ${low[1] === "associate" ? "Associate" : "Specialist"} title` : "salary not listed";
 }
 
 /** Posted pay below your floor rules a posting out; no posted pay never does. */
@@ -208,12 +295,18 @@ export function scoreCandidate(c: Omit<Candidate, "score">, roles: TargetRole[],
   const fresh = ageH <= 24 ? 50 : ageH <= 48 ? 40 : ageH <= 96 ? 28 : ageH <= 168 ? 18 : ageH <= 336 ? 8 : 2;
   const priority = 12 - Math.min(10, roles.findIndex((r) => r.name === c.role.name) * 2);
   const where = c.where === "remote" ? 8 : 5;
-  const pay = c.pay ? 5 : 0;
+  // A figure that includes variable pay says less about your salary than a base figure does.
+  const pay = c.pay ? (c.pay.basis === "variable" ? 2 : 5) : 0;
   const senior = / (senior|sr) /.test(norm(c.title)) ? -6 : 0;
+  // Career direction (18 Nov 2026): at entry to mid level, Engineer I and II are the titles
+  // to look for. Associate and Specialist titles usually pay less, so one with no base pay
+  // posted ranks lower; a posted salary that clears your floor speaks for itself.
+  const lvl = titleLevel(c.title);
+  const level = lvl === "early" ? 4 : lvl === "low" && (!c.pay || c.pay.basis === "variable") ? -8 : 0;
   // Career direction (Fable): skip demo-only pre-sales; keep implementation and internal SE roles.
   const demoOnly = c.role.name === "Solutions Engineer" && isDemoOnly(c.title, c.text ?? "") ? -15 : 0;
   const liked = clamp((taste.role.get(c.role.name.toLowerCase()) ?? 0) * 2, -10, 10) + clamp((taste.company.get(c.company.toLowerCase()) ?? 0) * 5, -15, 15) + clamp(taste.source.get(c.source.toLowerCase()) ?? 0, -5, 5);
-  return fresh + priority + where + pay + senior + demoOnly + liked;
+  return fresh + priority + where + pay + senior + level + demoOnly + liked;
 }
 
 /** Turns raw postings into ranked candidates; postings that don't fit are dropped. */

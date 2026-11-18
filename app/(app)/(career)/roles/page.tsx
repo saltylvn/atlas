@@ -34,6 +34,15 @@ function CareerDirection({ roles }: { roles: string[] }) {
         }
       />
       <p className="mb-4 border-l-2 border-line pl-3 text-sm text-ink-2">{d.edge}</p>
+      <div className="mb-4 rounded-lg border border-line p-3 text-sm">
+        <p className="eyebrow mb-1">How to present yourself, {d.positioning.on}</p>
+        <p className="mb-2 text-ink-2">{d.positioning.why}</p>
+        <ul className="list-disc space-y-1 pl-5 text-ink-2">
+          {d.positioning.notes.map((n) => (
+            <li key={n}>{n}</li>
+          ))}
+        </ul>
+      </div>
       <div className="grid gap-6 lg:grid-cols-2">
         <div>
           <p className="eyebrow mb-2">Top 5 roles to target</p>

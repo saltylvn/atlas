@@ -20,7 +20,7 @@ An orchestrator directs specialist agents that read my calendar, inbox, news fee
 | Mentor | Three reviews a day. Each insight names the facts it rests on and one action for today, and the agent remembers what was dismissed. | [`lib/agents/mentor.ts`](lib/agents/mentor.ts), [docs/CAREER-DESK.md](docs/CAREER-DESK.md) |
 | Mission Control | A live map of the orchestration drawn from the agents' own activity log, with run traces, Run now and Pause, connection health and the weekly QA review. | [`lib/domain/orchestration.ts`](lib/domain/orchestration.ts) |
 | Human in the loop | Agents draft; I approve and send from my own apps. An outbound kill switch and an append-only audit trail back that up. | [docs/SECURITY.md](docs/SECURITY.md) |
-| Evals and tests | 678 tests and 454 labeled eval cases across 11 suites on every pull request, each suite with a bar it must clear. | [`lib/evals/`](lib/evals), [`test/`](test), [docs/EVALS.md](docs/EVALS.md) |
+| Evals and tests | 684 tests and 485 labeled eval cases across 11 suites on every pull request, each suite with a bar it must clear. | [`lib/evals/`](lib/evals), [`test/`](test), [docs/EVALS.md](docs/EVALS.md) |
 | Security | Mapped to NIST CSF 2.0: single-owner sign-in with TOTP enforced in the database, row-level security, a nonce-based CSP, a threat model and a written security review. | [docs/NIST-CSF.md](docs/NIST-CSF.md), [docs/THREAT-MODEL.md](docs/THREAT-MODEL.md), [docs/SECURITY-REVIEW.md](docs/SECURITY-REVIEW.md) |
 
 Estimated time saved: about 10 hours a week across the daily automations. The per-automation estimates are in [`lib/domain/playbook.ts`](lib/domain/playbook.ts).
