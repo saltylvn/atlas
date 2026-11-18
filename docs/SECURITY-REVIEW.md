@@ -166,9 +166,18 @@ database held no trigger, function or test row from the run.
 4. **GitHub: Dependabot alerts on.** On a public copy, also turn on branch protection for `main` (require a pull request and the CI checks; it is free on public repositories) and private vulnerability reporting.
 5. **Keep-alive token.** `ATLAS_KEEPALIVE_TOKEN` is not set on the live deployment, so the keep-alive route refuses everyone. The scheduled runs keep the database awake today; set the token only if those are ever paused for a week.
 
+## Built since the review
+
+- **Refused tokens are recorded** (18 November 2026). A wrong token on a machine endpoint used to leave no trace beyond an hour of host logs. Now a missing or wrong bearer token on any of the seven machine endpoints (`/api/capture`, `/api/keepalive` and the five `/api/cron/*` routes) still answers 401 at once, and leaves a "denied" row in the audit trail (`token.refused`).
+  - **Recorded:** the route, from a fixed list in code, and how many requests were refused, split into no token and wrong token. For example: `3 refused at /api/keepalive: 1 no token, 2 wrong token`.
+  - **Never recorded:** the token, or any part, hash or length of it; a request header; the query string or body; the caller's address or user agent. Atlas stores no caller addresses anywhere, and this does not start.
+  - **Throttle:** in memory, per route, in the style of the rate limiter. The first refusal at a route opens a ten-minute window and schedules one write for after the response. The write waits five seconds, so a burst is counted in it. Every later refusal in the window only adds to a counter, and the next window's row carries it. A flood costs one row per route per window (at the very worst about 1,000 rows a day per server instance), never a write per request.
+  - **The 401 does not wait.** The route counts and answers; the write runs after the response has been sent. A write that fails is logged, keeps its count for the next row, is not tried again in that window, and changes nothing about the answer.
+  - **Reviewed every week.** The QA Agent counts the week's records by rules. Five or more refused requests raise a finding with the count as evidence: low from 5, medium from 25, high from 250 (a high one shows on Today). Fewer than five is noted on the check and raises nothing.
+  - **No database change.** The row fits `audit_events` as it is, and the table stays append-only.
+
 ## Not built (recommended next)
 
-- **Record refused tokens.** A wrong token on a machine endpoint leaves no trace beyond an hour of host logs. A throttled "denied" audit event, counted by the QA Agent, would show probing.
 - **A read-only database role for the QA Agent.** The triggers above mean no role can change the logs it reads. A role of its own would also limit what it can read.
 - **One key per job.** Every scheduled job shares one secret key. Separate roles for the sync, the briefs and the reviewer would shrink what a single leaked key reaches.
 
@@ -176,6 +185,7 @@ database held no trigger, function or test row from the run.
 
 - **One dev-only advisory** (picomatch, denial of service on a hostile glob pattern) inside the test and lint tooling. No patched release exists yet. It is not in the production bundle and no untrusted pattern reaches it.
 - **Deleting the owner's account is refused** while the append-only triggers exist, because the delete cascades to the logs. Erasing everything means dropping those triggers first.
+- **A refused-token count is a floor.** The throttle is in memory, per server instance, like the other limits. A row counts the burst that opened its window; what is refused later in that window is written only when the same instance sees another refusal after the window closes, so an instance that is recycled first takes that tail with it. Each instance also keeps its own windows, so two instances can each write a row for the same route. The trace itself does not depend on either: an instance writes a row within seconds of the first token it refuses at a route, and again in each later window. Under a long flood these rows can also push older events off the 40 shown on Settings and out of the newest 1,000 an export holds; the database keeps them all for a year.
 
 ## How it stays fixed
 
@@ -185,4 +195,13 @@ guard; the extension fills a field nobody can see; a log table loses its trigger
 retention job loses its flag; the app starts updating or deleting log rows; the
 keep-alive route answers before checking the token; or `/setup` is served on a
 configured deployment. The QA eval suite fails if planted text changes a finding.
+
+For refused tokens, the same file fails the build if: a route refuses a token without
+recording it, or waits for anything between the check and the 401; the list of machine
+routes drifts from the routes behind a bearer token; the recorder reads the header for
+anything but whether it is there; or the row is built from anything but the route and
+the counts. `test/machineRoutes.test.ts` calls all seven routes with a missing, a wrong
+and a right token, through a flood and through a database that refuses the write, and
+`test/refusedTokens.test.ts` plants a marked token and looks for any piece of it in what
+is stored or logged. Ten QA eval cases fix the threshold and the severities.
 

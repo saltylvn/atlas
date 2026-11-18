@@ -9,16 +9,18 @@ import { briefedSlots } from "@/lib/domain/briefSchedule";
 import { addDays, zonedToUtc } from "@/lib/domain/dates";
 import { tabUsage } from "@/lib/domain/layout";
 import { QA_TASK, QA_WINDOW_DAYS, qaReview, type QaInput, type StoredQaReport } from "@/lib/domain/qa";
+import { TOKEN_REFUSED } from "@/lib/domain/refusedTokens";
 import { contactsDue } from "@/lib/domain/relationships";
 import type { AgentRunEvent } from "@/lib/domain/types";
 import { env } from "@/lib/env";
 import { isPaused, logRun, NO_MODEL } from "./log";
 import { tracer } from "./trace";
 
-// The QA Agent at run time: gather a week of Atlas's own records, review them by rules
-// (lib/domain/qa.ts), save the report, log the run. No AI model, no outside request, and
-// nothing changed anywhere but its own table. Scheduled for Sunday evening; Run now works
-// any day and reviews the seven days ending today.
+// The QA Agent at run time: gather a week of Atlas's own records (the audit trail's
+// refused-token rows among them), review them by rules (lib/domain/qa.ts), save the
+// report, log the run. No AI model, no outside request, and nothing changed anywhere but
+// its own table. Scheduled for Sunday evening; Run now works any day and reviews the
+// seven days ending today.
 
 export interface QaResult {
   report: StandardReport;
@@ -39,7 +41,7 @@ export async function qaInput(ctx: Context, persist: Store): Promise<QaInput> {
   // A day more than the window, so a run that started just before it still pairs with its end.
   const since = new Date(now.getTime() - (QA_WINDOW_DAYS + 1) * 86_400_000).toISOString();
   const days = Array.from({ length: QA_WINDOW_DAYS }, (_, i) => addDays(from, i));
-  const [runs, briefs, connections, applications, approvals, insights, paused, aiCalls, earlier] = await Promise.all([
+  const [runs, briefs, connections, applications, approvals, insights, paused, aiCalls, earlier, refused] = await Promise.all([
     store.agentRuns.since(since).catch(() => []),
     Promise.all(days.map((d) => store.briefs.forDate(d).catch(() => []))).then((rows) => rows.flat().map((b) => ({ forDate: b.forDate, slot: b.slot, createdAt: b.createdAt }))),
     store.connections.list().catch(() => []),
@@ -49,6 +51,11 @@ export async function qaInput(ctx: Context, persist: Store): Promise<QaInput> {
     store.agentState.list().catch(() => []),
     store.aiUsage.since(since).catch(() => []),
     persist.qa.recent(3).catch(() => []),
+    // Tokens refused at the machine endpoints: the route, the time and the counts, nothing else of the row.
+    store.audit
+      .byAction(TOKEN_REFUSED, since)
+      .then((rows) => rows.map((r) => ({ at: r.at, target: r.target, detail: r.detail })))
+      .catch(() => null),
   ]);
   // The layout check: a week of use per main tab. Counts only; a source that cannot be read leaves the check out.
   const weekStart = zonedToUtc(from, "00:00", settings.timezone).toISOString();
@@ -82,6 +89,7 @@ export async function qaInput(ctx: Context, persist: Store): Promise<QaInput> {
     aiDailyLimit: env().ATLAS_AI_DAILY_LIMIT,
     aiOn: aiConfigured() && settings.aiEnabled && settings.outboundEnabled,
     usage,
+    refused,
     models: gemini ? { writer: geminiModel("writer"), fast: geminiModel("fast") !== geminiModel("writer") ? geminiModel("fast") : null } : null,
     // Last week's review: the newest one from an earlier day (a second run today replaces today's).
     previous: earlier.find((r) => r.forDate < today)?.report ?? null,
@@ -99,7 +107,7 @@ export async function runQa(ctx: Context, opts: QaOptions): Promise<QaResult | A
   await logRun(ctx, { runId, agent, task: QA_TASK, status: "started", trigger, detail: "", ...NO_MODEL });
   const t = tracer();
   try {
-    const input = await t.step("Gather a week of runs, briefs, eval scores, connections and queues", () => qaInput(ctx, persist), (i) => `${i.runs.length} log rows, ${i.briefs.length} briefs, ${i.connections.length} connections, ${i.aiCalls.length} AI calls, use per tab ${i.usage ? "counted" : "not counted"}`);
+    const input = await t.step("Gather a week of runs, briefs, eval scores, connections and queues", () => qaInput(ctx, persist), (i) => `${i.runs.length} log rows, ${i.briefs.length} briefs, ${i.connections.length} connections, ${i.aiCalls.length} AI calls, use per tab ${i.usage ? "counted" : "not counted"}, refused tokens ${i.refused ? `${i.refused.length} records` : "not read"}`);
     const review = qaReview(input);
     t.note("Review by rules, and compare with last week", `${review.checks.filter((c) => c.ok).length} of ${review.checks.length} checks passed, ${review.findings.length} findings, ${review.resolved.length} fixed since last week`);
     const stored = await t.step("Save the review", () => persist.qa.save({ forDate: ctx.today, report: review }));

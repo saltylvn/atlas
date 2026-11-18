@@ -5,9 +5,11 @@ import { env, mode } from "@/lib/env";
 import { ownerServiceStore, serviceReady } from "@/lib/owner";
 import { bearerMatches } from "@/lib/security/bearer";
 import { rateLimit } from "@/lib/security/rateLimit";
+import { noteRefusedToken } from "@/lib/security/refusedToken";
 
 // Capture from anywhere: an iPhone Shortcut ("Hey Siri, tell Atlas...") posts here with
 // a bearer token. A task lands in the backlog, or an idea on the Projects page.
+// A refused token is counted for the audit trail (lib/security/refusedToken.ts).
 
 const Body = z.object({
   text: z.string().trim().min(1).max(200),
@@ -16,6 +18,7 @@ const Body = z.object({
 
 export async function POST(request: NextRequest) {
   if (!bearerMatches(request.headers.get("authorization"), env().ATLAS_CAPTURE_TOKEN)) {
+    noteRefusedToken("/api/capture", request.headers.get("authorization"));
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
   if (mode() !== "live" || !serviceReady()) return NextResponse.json({ error: "not configured" }, { status: 503 });

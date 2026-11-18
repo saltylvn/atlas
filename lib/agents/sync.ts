@@ -17,6 +17,7 @@ import { indexKnowledge, indexNote } from "@/lib/knowledge/indexer";
 import { ownerServiceStore, ownerUserId, serviceReady } from "@/lib/owner";
 import { sendToAll } from "@/lib/push";
 import { bearerMatches } from "@/lib/security/bearer";
+import { noteRefusedToken } from "@/lib/security/refusedToken";
 import { runCalendarAgent } from "./calendar";
 import { lookUpNote, lookUpRoles, queueFollowUps, readingNote, readNewJobMail, trackApplications } from "./career";
 import { runEmailAgent } from "./email";
@@ -189,6 +190,7 @@ async function careerInSync(ctx: Context, trigger: Trigger, honorPause: boolean,
  */
 export async function handleSync(request: NextRequest): Promise<NextResponse> {
   if (!bearerMatches(request.headers.get("authorization"), env().CRON_SECRET)) {
+    noteRefusedToken("/api/cron/sync", request.headers.get("authorization"));
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
   if (mode() !== "live" || !serviceReady()) return NextResponse.json({ error: "not configured" }, { status: 503 });

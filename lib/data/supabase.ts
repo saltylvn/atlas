@@ -274,6 +274,11 @@ export function createSupabaseStore(db: SupabaseClient, ownerId?: string): Store
         if (error) fail("audit_events", "list", error);
         return (data ?? []).map((r) => rowToRecord(r));
       },
+      async byAction(action, iso) {
+        const { data, error } = await scope(db.from("audit_events").select("*").eq("action", action).gte("at", iso)).order("at", { ascending: false }).limit(1000);
+        if (error) fail("audit_events", "list", error);
+        return (data ?? []).map((r) => rowToRecord(r));
+      },
     },
     ledger: {
       async add(entry) {

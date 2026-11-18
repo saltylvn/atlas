@@ -162,7 +162,7 @@ export const AGENTS: readonly AgentProfile[] = [
     id: "qa",
     name: "QA Agent",
     role: "Weekly review of Atlas itself",
-    owns: "Every Sunday evening, reviews the week from the records the other agents write: runs that failed or stopped, briefs that were missed or late, how often the AI model answered, eval scores, connections, and your own queues. Ranks what it finds, compares it with last week, and suggests a fix for each.",
+    owns: "Every Sunday evening, reviews the week from the records the other agents write: runs that failed or stopped, briefs that were missed or late, how often the AI model answered, eval scores, connections, tokens refused at the machine endpoints, and your own queues. Ranks what it finds, compares it with last week, and suggests a fix for each.",
     never: "Change Atlas, a setting or your data, read the content of an email or a brief, or use the AI model: the reviewer has to work when the model is what broke.",
     color: "var(--c-orange)",
     initials: "QA",

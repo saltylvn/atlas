@@ -22,7 +22,7 @@ export function QaCard({ latest, now }: { latest: StoredQaReport | null; now: Da
       <CardHeader
         title="QA review"
         icon="shield"
-        hint="The QA Agent reviews Atlas itself every Sunday evening: runs, briefs, the AI model, eval scores, connections, your queues and whether each main tab was used. By rules, never the AI model. It recommends; it changes nothing."
+        hint="The QA Agent reviews Atlas itself every Sunday evening: runs, briefs, the AI model, eval scores, connections, tokens refused at the machine endpoints, your queues and whether each main tab was used. By rules, never the AI model. It recommends; it changes nothing."
         action={<RunNowButton agent="qa" />}
       />
       {!r ? (

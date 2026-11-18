@@ -2,7 +2,8 @@
 // the scheduled review, in tests and in the daily evals.
 //
 // It reviews Atlas itself, from the records every agent already writes: the activity log,
-// saved briefs, eval scores, connections, AI usage, and the state of your own queues. Each
+// saved briefs, eval scores, connections, AI usage, the state of your own queues, and the
+// audit trail's records of tokens refused at the machine endpoints. Each
 // check either passes or raises a finding: what is wrong, the evidence, and a suggested
 // fix. Findings are ranked by severity and compared with last week's review, so you can
 // see what is new, what is still open, and what got fixed.
@@ -20,6 +21,7 @@ import { ROLE_NOT_LISTED } from "./applications";
 import { BRIEF_NAME, BRIEF_TIMES, isSyncDay, slotsFor, SYNC_HOURS, SYNC_TASK } from "./briefSchedule";
 import { addDays, localDate, localTime, shortDate, weekdayName } from "./dates";
 import { LAYOUT_SINCE, tabNotes, type TabUsage } from "./layout";
+import { refusedSummary, type RefusedRecord } from "./refusedTokens";
 import type { AgentId, AgentRunEvent, BriefSlot, LocalDate } from "./types";
 
 export const QA_TASK = "Weekly QA review";
@@ -33,10 +35,16 @@ const STALLED_AFTER_MS = 6 * 60_000;
 export const QA_EVAL_TASK = "Agent evals";
 export const QA_AI_CHECK_TASK = "AI connection check";
 
-export type QaSeverity = "high" | "medium" | "low";
-export type QaArea = "reliability" | "briefs" | "ai" | "evals" | "data" | "pipeline" | "layout";
+/** Refused requests in a week before the review raises them. Fewer is a stray call. */
+export const QA_REFUSED_MIN = 5;
+/** From here it is more than one sweep of the routes: medium. From the second number, a sustained run: high. */
+export const QA_REFUSED_MEDIUM = 25;
+export const QA_REFUSED_HIGH = 250;
 
-export const QA_AREA_LABEL: Record<QaArea, string> = { reliability: "Reliability", briefs: "Briefs", ai: "AI model", evals: "Quality", data: "Fresh data", pipeline: "Your queues", layout: "Layout and workflow" };
+export type QaSeverity = "high" | "medium" | "low";
+export type QaArea = "reliability" | "briefs" | "ai" | "evals" | "data" | "pipeline" | "layout" | "security";
+
+export const QA_AREA_LABEL: Record<QaArea, string> = { reliability: "Reliability", briefs: "Briefs", ai: "AI model", evals: "Quality", data: "Fresh data", pipeline: "Your queues", layout: "Layout and workflow", security: "Security" };
 
 export interface QaFinding {
   /** Stable name of what was found, so next week's review can tell new from still open. */
@@ -101,12 +109,14 @@ export interface QaInput {
   models: { writer: string; fast: string | null } | null;
   /** A week of use per main tab (counts only), or null when it could not be counted. */
   usage?: TabUsage | null;
+  /** The audit trail's refused-token records for the window (route, time and counts), or null when it could not be read. */
+  refused?: readonly RefusedRecord[] | null;
   /** Last week's review, to tell new findings from open ones. */
   previous: Pick<QaReport, "findings"> | null;
 }
 
 const SEVERITY_RANK: Record<QaSeverity, number> = { high: 0, medium: 1, low: 2 };
-const AREA_RANK: Record<QaArea, number> = { briefs: 0, reliability: 1, ai: 2, data: 3, evals: 4, pipeline: 5, layout: 6 };
+const AREA_RANK: Record<QaArea, number> = { security: 0, briefs: 1, reliability: 2, ai: 3, data: 4, evals: 5, pipeline: 6, layout: 7 };
 const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
 const clip = (s: string, n = 180) => (s.length > n ? `${s.slice(0, n - 1).trimEnd()}…` : s);
 const nameOf = (id: AgentId) => AGENTS.find((a) => a.id === id)?.name ?? id;
@@ -350,6 +360,32 @@ export function qaReview(input: QaInput): QaReport {
   const longPaused = input.paused.filter((p) => p.paused && waitDays(p.updatedAt) >= 7);
   for (const p of longPaused) add({ key: `paused:${p.agent}`, area: "reliability", severity: "low", title: `${nameOf(p.agent)} has been paused for ${plural(waitDays(p.updatedAt), "day")}`, evidence: [`Paused since ${when(p.updatedAt)}`], fix: "Resume it in Mission Control if the pause was not meant to last." });
   check("reliability", "No agent was left paused", longPaused.length === 0, longPaused.length ? longPaused.map((p) => nameOf(p.agent)).join(", ") : "None paused for a week");
+
+  // ---- security: tokens refused at the machine endpoints (lib/domain/refusedTokens.ts)
+  const REFUSED_CHECK = "No run of refused tokens at the machine endpoints";
+  if (!input.refused) check("security", REFUSED_CHECK, true, "The audit trail was not read this week");
+  else {
+    // Each row is read as data: only its time, its route and the counts it holds.
+    const week = refusedSummary(input.refused.filter((r) => !Number.isNaN(Date.parse(r.at)) && dayOf(r.at) >= from));
+    const raised = week.refused >= QA_REFUSED_MIN;
+    if (raised) {
+      const rest = week.refused - week.missing - week.wrong;
+      add({
+        key: "security:refused-tokens",
+        area: "security",
+        severity: week.refused >= QA_REFUSED_HIGH ? "high" : week.refused >= QA_REFUSED_MEDIUM ? "medium" : "low",
+        // A floor: the count is kept per server instance, and one that is recycled takes its unwritten tail with it.
+        title: `At least ${week.refused} requests to the machine endpoints were refused: no token, or a wrong one`,
+        evidence: [
+          `${plural(week.records, "record")} in the audit trail: ${week.missing} with no token, ${week.wrong} with a wrong token${rest > 0 ? `, ${rest} not broken down` : ""}`,
+          week.routes.map((r) => `${r.route}: ${r.refused}`).join(" · "),
+          `First ${when(week.first!)}, last ${when(week.last!)}`,
+        ],
+        fix: "A refused request got nothing: each token is 32 or more random characters, compared in constant time. If these were yours (a Shortcut or a scheduled job holding an old token), update the token there. If not, add the Vercel Firewall rate-limit rule for /api/* (Yours to do in docs/SECURITY-REVIEW.md), and rotate that route's token if wrong ones keep arriving (the table in docs/SECURITY.md).",
+      });
+    }
+    check("security", REFUSED_CHECK, !raised, week.refused ? `${plural(week.refused, "request")} refused in ${plural(week.records, "record")}${raised ? "" : `, under the ${QA_REFUSED_MIN} that raise a finding`}` : "No token was refused this week");
+  }
 
   // ---- layout and workflow: was each main tab used? (the owner's four tabs, lib/domain/layout.ts)
   if (!input.usage) check("layout", "Each main tab was used", true, "Use per tab was not counted this week");

@@ -332,3 +332,27 @@ Entries for 7–10 November are in git history, on the commits before Atlas repl
 - Not built: recording refused tokens, a read-only database role for the QA Agent, one key per scheduled job.
 - 649 tests, 444 eval cases.
 
+### 2026-11-18 — A refused token leaves a trace
+
+**Shipped:**
+
+- A missing or wrong bearer token on a machine endpoint still answers 401 at once, and now leaves a "denied" row in the audit trail (`token.refused`). All seven routes behind a bearer token record it: `/api/capture`, `/api/keepalive` and the five `/api/cron/*` routes.
+- The row holds the route (from a fixed list in code) and how many requests were refused, split into no token and wrong token. It never holds the token or any part, hash or length of it, a request header, the query string or body, or anything about the caller.
+- Throttled in memory, per route: the first refusal opens a ten-minute window and schedules one write for after the response; the write waits five seconds so a burst is counted in it; later refusals in the window only add to a counter that the next window's row carries. A flood costs one row per route per window, never a write per request.
+- The QA Agent counts the week's records by rules, under a new Security area: five or more refused requests raise a finding (low from 5, medium from 25, high from 250) with the count, the routes and the first and last time as evidence. Fewer is noted on the check.
+- The first item under "Not built" in `docs/SECURITY-REVIEW.md` is now under "Built since the review".
+
+**Decisions:**
+
+- No database change. The row fits `audit_events` as it is; the store gained one read (`audit.byAction`).
+- The route is repeated in the row's detail, because the audit trail on Settings shows the detail and not the target.
+- The write runs through Next's `after()`, so the 401 never waits for it. A failed write is logged, keeps its count for the next row, and is not tried again in that window.
+- Atlas stores no caller addresses, so the record has none.
+- A finding of the same severity as another is listed first when it is about security.
+
+**Limitations:**
+
+- A count is a floor. The throttle is per server instance, and what is refused after a window's row is written reaches the trail only if that instance sees another refusal once the window has closed.
+- Checked by tests, and locally in the real Next runtime against a stand-in database: 401 in under 10 ms, one row per route five seconds later, 300 more refusals in the window added no write, and nothing of the request was in what reached the database. Not checked on the live site: that needs the merge and a deploy.
+- In demo mode there is no database, so nothing is recorded.
+- 678 tests, 454 eval cases.

@@ -11,6 +11,7 @@ import { env, mode } from "@/lib/env";
 import { ownerServiceStore, ownerUserId, serviceReady } from "@/lib/owner";
 import { syncNotion } from "@/lib/connections/notion";
 import { bearerMatches } from "@/lib/security/bearer";
+import { noteRefusedToken } from "@/lib/security/refusedToken";
 import { runChiefOfStaff } from "./chiefOfStaff";
 import { runQa } from "./qa";
 import { logEvalRun } from "./evals";
@@ -22,9 +23,11 @@ import { RESUME_SYNC_TASK, resumeSyncReady, runResumeSync } from "./resumeSync";
 // The scheduler. Vercel Cron calls /api/cron/morning and /api/cron/afternoon with
 // `Authorization: Bearer $CRON_SECRET`, early enough that each brief is ready by
 // 9:00 AM and 2:00 PM Mountain time. Weekend Mode and pause switches are applied here.
+// A call with a missing or wrong token answers 401 and is counted for the audit trail.
 
 export async function handleCron(request: NextRequest, wanted: "morning" | "afternoon" | "evening" | "qa"): Promise<NextResponse> {
   if (!bearerMatches(request.headers.get("authorization"), env().CRON_SECRET)) {
+    noteRefusedToken(`/api/cron/${wanted}`, request.headers.get("authorization"));
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
   if (mode() !== "live" || !serviceReady()) return NextResponse.json({ error: "not configured" }, { status: 503 });
