@@ -243,6 +243,9 @@ export function createMemoryStore(state: MemoryState): Store {
       async recent(limit) {
         return state.audit.slice(-limit).reverse();
       },
+      async byAction(action, iso) {
+        return state.audit.filter((e) => e.action === action && e.at >= iso).reverse().slice(0, 1000);
+      },
     },
     ledger: {
       async add(entry) {

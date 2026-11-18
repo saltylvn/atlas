@@ -2,6 +2,7 @@ import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import vm from "node:vm";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { MACHINE_ROUTES } from "@/lib/domain/refusedTokens";
 import { isPublicIPv6 } from "@/lib/security/oneClick";
 import { BlockedRequestError, safeFetchText } from "@/lib/security/safeFetch";
 
@@ -129,6 +130,94 @@ describe("Machine endpoints and the setup page give nothing away", () => {
     const src = read("lib/supabase/proxy.ts");
     expect(src).toContain('if (path === "/setup") return redirect(request, response, "/");');
     expect(src.indexOf('path === "/setup"')).toBeLessThan(src.indexOf("isPublicPath(path)"));
+  });
+});
+
+// "Record refused tokens", built after the review: a missing or wrong token leaves a
+// throttled record in the audit trail, and the weekly QA review counts them.
+describe("A refused token on a machine endpoint leaves a trace", () => {
+  const sources = [...walk("app"), ...walk("lib")].filter((f) => /\.tsx?$/.test(f));
+  /** Each place a token is refused: from the check to the 401 that answers it. */
+  const refusals = sources.flatMap((file) => {
+    const src = read(file);
+    return [...src.matchAll(/if \(!bearerMatches\(/g)].map((m) => ({ file, block: src.slice(m.index, src.indexOf("status: 401", m.index)) }));
+  });
+  /** A file without its comments, so a word in a comment is not taken for code. */
+  const code = (file: string) => read(file).replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
+
+  it("the list of machine routes is every API route behind a bearer token", () => {
+    const gated = walk("app/api")
+      .filter((f) => f.endsWith("route.ts") && /bearerMatches\(|handleCron\(|handleSync\(/.test(read(f)))
+      .map((f) => `/${f.replace(/^app\//, "").replace(/\/route\.ts$/, "")}`);
+    expect(gated.sort()).toEqual([...MACHINE_ROUTES].sort());
+  });
+
+  it("every place that refuses a token records the refusal before it answers 401", () => {
+    expect(refusals.map((r) => r.file).sort()).toEqual(["app/api/capture/route.ts", "app/api/keepalive/route.ts", "lib/agents/cron.ts", "lib/agents/sync.ts"]);
+    for (const r of refusals) {
+      expect(r.block, r.file).toMatch(/noteRefusedToken\((?:"\/api\/[a-z/]+"|`\/api\/cron\/\$\{wanted\}`), request\.headers\.get\("authorization"\)\);/);
+      // The route is a fixed path from the list, never one read from the request.
+      const named = /noteRefusedToken\("(\/api\/[a-z/]+)"/.exec(r.block)?.[1];
+      if (named) expect(MACHINE_ROUTES as readonly string[], r.file).toContain(named);
+      // Nothing is awaited between the check and the answer: the 401 does not wait for the record.
+      expect(r.block, r.file).not.toContain("await");
+    }
+    // No token check answers 401 anywhere else.
+    expect(sources.filter((f) => f !== "lib/security/bearer.ts" && /bearerMatches\(/.test(code(f))).sort()).toEqual(refusals.map((r) => r.file).sort());
+  });
+
+  it("the token check still comes before any other answer, on every machine route", () => {
+    for (const { file } of refusals) {
+      const src = read(file);
+      const check = src.indexOf("if (!bearerMatches(");
+      expect(check, file).toBeGreaterThan(-1);
+      expect(check, file).toBeLessThan(src.indexOf("noteRefusedToken(", check));
+      expect(check, file).toBeLessThan(src.indexOf("NextResponse.json("));
+      expect(check, file).toBeLessThan(src.indexOf('"not configured"'));
+    }
+  });
+
+  it("the recorder looks at the header only to see whether it is there, and builds the row from the route and counts", () => {
+    const src = code("lib/security/refusedToken.ts");
+    // The header appears twice in code: where it comes in, and where it is classified.
+    expect(src.match(/\bheader\b/g)).toEqual(["header", "header"]);
+    expect(src).toContain("slot[refusalKind(header)] += 1;");
+    expect(src).toContain("const detail = refusedDetail(route, tally);");
+    expect(src).toContain('audit(store, { actor: "system", action: TOKEN_REFUSED, target: route, detail, outcome: "denied" })');
+    // What it logs when a write fails is that same detail, or the route and an error's message.
+    expect([...src.matchAll(/console\.error\(([^)]*)\)/g)].map((m) => m[1])).toEqual(['"[audit] refused tokens not recorded yet:", detail', '"[audit] refused token not recorded", route, (err as Error']);
+    expect(src).not.toMatch(/createHash|createHmac|digest|\.slice\(|\.length|request|headers|user-agent|forwarded|x-real-ip|\bip\b/i);
+    // The classifier answers one of two words and keeps nothing.
+    const domain = code("lib/domain/refusedTokens.ts");
+    const kind = domain.slice(domain.indexOf("export function refusalKind"), domain.indexOf("const count"));
+    expect(kind.replace(/\s+/g, " ").trim()).toBe('export function refusalKind(header: string | null | undefined): RefusalKind { return header && header.trim() ? "wrong" : "missing"; }');
+    expect(domain).not.toMatch(/createHash|createHmac|digest|node:crypto/);
+  });
+
+  it("is throttled in memory: one write per route per window, scheduled after the response", () => {
+    const src = code("lib/security/refusedToken.ts");
+    expect(src).toContain("export const REFUSED_WINDOW_MS = 10 * 60_000;");
+    expect(src).toContain("if (now - slot.opened < REFUSED_WINDOW_MS) return;");
+    expect(src).toContain("if (!MACHINE_ROUTES.includes(route) || !deps.ready()) return;");
+    expect(src).toContain("after(task);");
+    // The only write is the audit helper's insert: the trail stays append-only.
+    expect(src).not.toMatch(/\.update\(|\.delete\(|\.upsert\(|\.from\(/);
+  });
+
+  it("needed no table or column, and no migration stores a caller's address or user agent", () => {
+    const sql = walk("supabase/migrations").sort().map(read).join("\n");
+    expect(sql).not.toMatch(/token\.refused|refused_token|caller_ip|ip_address|user_agent/i);
+    expect(sql).toContain("outcome text not null check (outcome in ('success', 'denied', 'error'))");
+  });
+
+  it("the QA Agent reads the records by rules: the route, the time and the counts", () => {
+    const agent = read("lib/agents/qa.ts");
+    expect(agent).toContain("byAction(TOKEN_REFUSED, since)");
+    expect(agent).toContain("rows.map((r) => ({ at: r.at, target: r.target, detail: r.detail }))");
+    const rules = read("lib/domain/qa.ts");
+    expect(rules).toContain("export const QA_REFUSED_MIN = 5;");
+    expect(rules).toContain('key: "security:refused-tokens"');
+    for (const f of ["lib/domain/qa.ts", "lib/domain/refusedTokens.ts", "lib/agents/qa.ts"]) expect(read(f), f).not.toMatch(/structured|takeAiCall|safeFetch|fetch\(/);
   });
 });
 

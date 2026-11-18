@@ -9,7 +9,9 @@ import { createMemoryStore, seedState } from "@/lib/data/memory";
 import { AI_CHECK_TASK } from "@/lib/domain/aiCheck";
 import { localDate } from "@/lib/domain/dates";
 import { MAP_EDGES, MAP_GROUPS, MAP_NODES, MAP_SIZE } from "@/lib/domain/orchestration";
-import { QA_AI_CHECK_TASK, QA_EVAL_TASK, QA_TASK, qaAlerts, type QaFinding, type QaReport, type StoredQaReport } from "@/lib/domain/qa";
+import { QA_AI_CHECK_TASK, QA_EVAL_TASK, QA_REFUSED_HIGH, QA_REFUSED_MEDIUM, QA_REFUSED_MIN, QA_TASK, qaAlerts, qaReview, type QaFinding, type QaInput, type QaReport, type StoredQaReport } from "@/lib/domain/qa";
+import { refusedDetail, TOKEN_REFUSED } from "@/lib/domain/refusedTokens";
+import { audit } from "@/lib/audit";
 import { EVAL_TASK } from "@/lib/evals";
 
 vi.mock("@/components/client/MissionControls", () => ({ RunNowButton: () => null }));
@@ -61,6 +63,48 @@ describe("The QA Agent's weekly review, end to end (demo)", () => {
     expect(again.stored.report.resolved).toEqual(["The Gmail connection has an error"]);
   });
 
+  it("counts the week's refused tokens from the audit trail and raises them with the count", async () => {
+    const real = new Date();
+    const ctx = demo(localDate(real, "America/Denver"), real);
+    // Three records, as the recorder writes them, among other audit rows that are not counted.
+    await audit(ctx.store, { actor: "system", action: TOKEN_REFUSED, target: "/api/cron/sync", detail: refusedDetail("/api/cron/sync", { missing: 4, wrong: 20 }), outcome: "denied" });
+    await audit(ctx.store, { actor: "system", action: TOKEN_REFUSED, target: "/api/capture", detail: refusedDetail("/api/capture", { missing: 0, wrong: 3 }), outcome: "denied" });
+    await audit(ctx.store, { actor: "system", action: TOKEN_REFUSED, target: "/api/keepalive", detail: refusedDetail("/api/keepalive", { missing: 1, wrong: 0 }), outcome: "denied" });
+    await audit(ctx.store, { actor: "owner", action: "message.handoff", target: "c1", detail: "blocked by kill switch", outcome: "denied" });
+    const res = await runQa({ ...ctx, now: new Date(real.getTime() + 60_000) }, { trigger: "run-now", honorPause: false, persist: ctx.store });
+    if ("missing" in res) throw new Error(res.why);
+
+    const f = res.stored.report.findings.find((x) => x.key === "security:refused-tokens")!;
+    expect(f).toMatchObject({ area: "security", severity: "medium", weeks: 1, title: "At least 28 requests to the machine endpoints were refused: no token, or a wrong one" });
+    expect(f.evidence[0]).toBe("3 records in the audit trail: 5 with no token, 23 with a wrong token");
+    expect(f.evidence[1]).toBe("/api/cron/sync: 24 · /api/capture: 3 · /api/keepalive: 1");
+    expect(f.evidence[2]).toMatch(/^First \w{3} \d\d:\d\d, last \w{3} \d\d:\d\d$/);
+    expect(res.stored.report.checks.find((c) => c.name === "No run of refused tokens at the machine endpoints")).toMatchObject({ area: "security", ok: false, note: "28 requests refused in 3 records" });
+
+    // The run's own log rows hold counts only.
+    const run = (await ctx.store.agentRuns.recent(10)).find((r) => r.task === QA_TASK && r.status === "succeeded")!;
+    expect(run.trace![0]!.note).toContain("refused tokens 3 records");
+    expect(JSON.stringify(run)).not.toContain("/api/cron/sync");
+  });
+
+  it("raises refused tokens from 5 in a week, medium from 25 and high from 250, and says so when under", () => {
+    const now = new Date("2026-11-23T01:00:00Z");
+    const week = (refused: QaInput["refused"]): QaInput => ({ today: "2026-11-22", now, timeZone: "America/Denver", runs: [], briefs: [], connections: [], applications: [], approvals: [], insights: [], paused: [], aiCalls: [], aiDailyLimit: 60, aiOn: false, models: null, refused, previous: null });
+    const one = (n: number) => [{ at: "2026-11-18T10:12:00Z", target: "/api/cron/sync", detail: refusedDetail("/api/cron/sync", { missing: n, wrong: 0 }) }];
+    const raised = (n: number) => qaReview(week(one(n))).findings.find((f) => f.key === "security:refused-tokens")?.severity ?? "none";
+    expect([QA_REFUSED_MIN, QA_REFUSED_MEDIUM, QA_REFUSED_HIGH]).toEqual([5, 25, 250]);
+    expect([4, 5, 24, 25, 249, 250, 100_000].map(raised)).toEqual(["none", "low", "low", "medium", "medium", "high", "high"]);
+
+    const check = (refused: QaInput["refused"]) => qaReview(week(refused)).checks.find((c) => c.name === "No run of refused tokens at the machine endpoints")!;
+    expect(check(one(4))).toMatchObject({ ok: true, note: "4 requests refused in 1 record, under the 5 that raise a finding" });
+    expect(check([])).toMatchObject({ ok: true, note: "No token was refused this week" });
+    expect(check(null)).toMatchObject({ ok: true, note: "The audit trail was not read this week" });
+    expect(check(undefined)).toMatchObject({ ok: true, note: "The audit trail was not read this week" });
+    // A high one reaches Today like any other high finding, and leads the ones of its severity.
+    expect(qaAlerts(qaReview(week(one(250))), "2026-11-23").map((f) => f.key)[0]).toBe("security:refused-tokens");
+    expect(qaAlerts(qaReview(week(one(249))), "2026-11-23").map((f) => f.key)).not.toContain("security:refused-tokens");
+  });
+
   it("skips a scheduled review when paused, and still runs when you ask", async () => {
     const ctx = demo();
     await ctx.store.agentState.setPaused("qa", true);
@@ -76,7 +120,7 @@ describe("The QA Agent's place in Atlas", () => {
   });
 
   it("never calls the AI model or anything outside Atlas", () => {
-    for (const f of ["lib/domain/qa.ts", "lib/agents/qa.ts"]) {
+    for (const f of ["lib/domain/qa.ts", "lib/domain/refusedTokens.ts", "lib/agents/qa.ts"]) {
       const src = read(f);
       expect(src, f).not.toMatch(/structured|takeAiCall|safeFetch|fetch\(/);
     }
@@ -130,6 +174,13 @@ describe("Showing the review", () => {
     const clean = renderToStaticMarkup(createElement(QaCard, { latest: stored([]), now: NOW }));
     expect(clean).toContain("All 13 checks passed.");
     expect(renderToStaticMarkup(createElement(QaCard, { latest: null, now: NOW }))).toContain("No review yet");
+  });
+
+  it("shows a refused-token finding under Security, with its count and where it came from", async () => {
+    const { QaCard } = await import("@/components/QaCard");
+    const f = finding({ key: "security:refused-tokens", area: "security", severity: "medium", weeks: 1, title: "At least 28 requests to the machine endpoints were refused: no token, or a wrong one", evidence: ["3 records in the audit trail: 5 with no token, 23 with a wrong token", "/api/cron/sync: 24 · /api/capture: 3 · /api/keepalive: 1"], fix: "Add the Vercel Firewall rate-limit rule for /api/*." });
+    const html = renderToStaticMarkup(createElement(QaCard, { latest: stored([f]), now: NOW }));
+    for (const text of ["Medium", "Security", "New this week", "At least 28 requests to the machine endpoints were refused", "Suggested fix:", "/api/cron/sync: 24 · /api/capture: 3 · /api/keepalive: 1", "tokens refused at the machine endpoints"]) expect(html, text).toContain(text);
   });
 
   it("Today points at the review only for something serious, and only while it is fresh", () => {

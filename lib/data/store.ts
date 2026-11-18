@@ -99,6 +99,8 @@ export interface Store {
     /** Append-only: there is deliberately no update or delete. */
     append(event: Omit<AuditEvent, "id" | "at">): Promise<void>;
     recent(limit: number): Promise<AuditEvent[]>;
+    /** Events of one action since an instant, newest first, at most 1,000 (one page of the API). The QA review counts refused tokens with it. */
+    byAction(action: string, isoInstant: string): Promise<AuditEvent[]>;
   };
   ledger: {
     add(entry: Omit<LedgerEntry, "id" | "at">): Promise<void>;

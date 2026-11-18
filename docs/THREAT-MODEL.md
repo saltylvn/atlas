@@ -27,7 +27,7 @@
 | S1 | Someone else signs in | Single-owner sign-up trigger; owner email check in proxy, data layer; RLS bound to the enrolled owner id | Low |
 | S2 | Stolen password / Google session | TOTP required (AAL2), enforced by RLS; "sign out everywhere" | Low |
 | S4 | Gmail connected to an attacker's Google account, or OAuth code injection | Connect flow only for the signed-in owner (AAL2) whose user id matches `ATLAS_OWNER_USER_ID`; `state` + PKCE (S256) in an httpOnly cookie scoped to the route, compared in constant time; exact redirect URI from config, not the Host header | Low |
-| S5 | Forged cron or capture call | Bearer tokens (32+ chars) compared in constant time; capture is write-only, size- and rate-limited, lands in the backlog | Low |
+| S5 | Forged cron or capture call | Bearer tokens (32+ chars) compared in constant time; capture is write-only, size- and rate-limited, lands in the backlog; a refused token is recorded in the audit trail (route and counts only, throttled) and the weekly QA review counts them, so probing shows | Low |
 | T1 | Tampering with the audit trail | No update/delete policy; privileges revoked; service writes only inserts | Low |
 | T2 | Malicious feed content (XSS) | Feeds reduced to plain-text title + http(s) link; React escapes; strict nonce CSP | Low |
 | R1 | "I didn't send that" | Hand-offs, drafts and switches audited with actor and outcome | Low |

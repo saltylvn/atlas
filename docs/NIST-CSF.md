@@ -26,7 +26,7 @@ Atlas is a single-owner personal system, so the "organization" is one person. Th
 | --- | --- | --- |
 | PR.AA Identity & access [IA-2(1), AC-3, AC-6] | Google sign-in + mandatory TOTP (AAL2, SP 800-63B); single-owner allowlist; sign-up trigger refuses every other email; RLS requires `aal = 'aal2'`; checks in proxy **and** data layer **and** database | `proxy.ts`, `lib/supabase/gate.ts`, `lib/context.ts`, migration |
 | PR.AA Delegated access [AC-6, IA-5] | Gmail connected with a revocable app password used over IMAP for header-only reads (EXAMINE) and owner-clicked archive (Inbox label removal, no delete or send), or OAuth 2.0 code + PKCE with least scope (`gmail.readonly`, metadata-only); either credential sealed, verified before storage, and removable from Connectors | `lib/integrations/google.ts`, `app/api/connect/google` |
-| PR.AA Machine identity (scheduled + device) [IA-3] | Vercel Cron and the Siri Shortcut each authenticate with their own bearer token, constant-time compared; the capture endpoint can only add | `lib/security/bearer.ts`, `app/api/cron`, `app/api/capture` |
+| PR.AA Machine identity (scheduled + device) [IA-3] | Vercel Cron and the Siri Shortcut each authenticate with their own bearer token, constant-time compared; the capture endpoint can only add; a refused token is recorded (see DE.CM) | `lib/security/bearer.ts`, `app/api/cron`, `app/api/capture` |
 | PR.AA Brute force [AC-7] | Rate limits on sign-in, TOTP verify, Gmail actions, AI | `lib/security/rateLimit.ts` |
 | PR.DS Data at rest [SC-28] | Supabase Postgres encryption at rest; no message bodies or secrets in logs or audit details | migration, `lib/audit.ts` |
 | PR.DS Stored credentials [SC-28(1), SC-12] | OAuth refresh tokens sealed with AES-256-GCM (random IV, owner id as AAD) under a key held only in env; column-level privileges hide the ciphertext from the owner's own session | `lib/security/vault.ts`, migration `20261112201141_connections.sql` |
@@ -43,8 +43,10 @@ Atlas is a single-owner personal system, so the "organization" is one person. Th
 | --- | --- | --- |
 | DE.CM Agent activity [AU-2, AU-6, SI-4] | Every agent run writes started / succeeded / failed / skipped to an append-only activity log with model, tokens and cost; failures are shown in the brief and in Mission Control, never skipped silently; Pause stops a misbehaving agent without touching the others | `agent_runs`, `lib/agents/chiefOfStaff.ts`, `/mission` |
 | DE.CM Monitoring [AU-2, AU-12] | Append-only audit trail of security-relevant events: sign-out, deletes, hand-offs (and kill-switch denials), AI calls, settings and switch changes, plan runs, exports | `audit_events`, `lib/audit.ts` |
+| DE.CM Unsuccessful access attempts [AC-7, AU-2, SI-4] | A missing or wrong token at a machine endpoint leaves a "denied" row: the route and counts only, no token, header or caller address. Throttled in memory to one row per route per ten minutes, so a flood cannot fill the trail or cost a write per request | `lib/security/refusedToken.ts`, `lib/domain/refusedTokens.ts` |
 | DE.CM Tamper resistance [AU-9] | No update/delete policy; privileges revoked; owner sees but cannot edit | migration |
 | DE.AE Analysis | Audit trail on Settings with outcome pills (success / denied / error); failed audit writes logged to platform logs | `app/(app)/settings`, `lib/audit.ts` |
+| DE.AE Review of refused tokens [AU-6] | The weekly QA review counts the week's refused tokens by rules and raises a finding from five (low), 25 (medium) or 250 (high, shown on Today), with the count, the routes and the times as evidence | `lib/domain/qa.ts`, `lib/agents/qa.ts` |
 | DE.CM AI spend | Daily AI cap in the database; usage shown on Settings | `lib/ai/budget.ts` |
 
 ## RS — Respond
@@ -64,6 +66,6 @@ Atlas is a single-owner personal system, so the "organization" is one person. Th
 
 ## Residual risks (accepted)
 
-- In-memory rate limits are per server instance; the durable control for AI spend is the database cap, and auth brute force is also limited by Supabase.
+- In-memory rate limits are per server instance; the durable control for AI spend is the database cap, and auth brute force is also limited by Supabase. The refused-token record is throttled the same way, so its counts are a floor.
 - `style-src 'unsafe-inline'` is kept for inline style attributes; styles cannot execute script.
 - The secret iCal URL is a bearer credential held in an env var; rotating it is a one-click action in Google Calendar.
