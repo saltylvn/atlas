@@ -73,7 +73,7 @@ describe("Tracing", () => {
     const done = runs.find((r) => r.status === "succeeded")!;
     expect(started.trace).toBeUndefined();
     expect(done.durationMs).toEqual(expect.any(Number));
-    expect(done.trace!.map((s) => s.name)).toEqual(["Load the inbox the Email Agent synced, and your Renewals list", "Read bills, payment alerts and deals"]);
+    expect(done.trace!.map((s) => s.name)).toEqual(["Load the inbox the Email bot synced, and your Renewals list", "Read bills, payment alerts and deals"]);
     expect(done.trace![1]!.note).toMatch(/\d+ bills .* \d+ deals/);
   });
 

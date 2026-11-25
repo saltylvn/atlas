@@ -24,10 +24,10 @@ const CORPUS: KnowledgeDoc[] = [
   doc("person", "p1", "Dana Whitfield (network)", "Dana Whitfield is in your network circle. Last contact 2026-11-10. Notes: engineering manager at Northwind; met at the Denver cloud meetup; prefers email."),
   doc("person", "p2", "Sam Okafor (friends)", "Sam Okafor is in your friends circle. Last contact 2026-09-02. You want to be in touch every 30 days. Notes: training for a marathon in April; owes you a coffee."),
   doc("person", "p3", "Aunt Rosa (family)", "Aunt Rosa is in your family circle. Last contact 2026-10-19. Birthday 12-03. Notes: recovering from knee surgery; likes phone calls on Sunday."),
-  doc("application", "a1", "Application: Solutions Engineer at Kestrel", "Status: replied since 2026-11-09. Applied 2026-11-02. Full-time. Target role: Solutions Engineer. Pay: $130k-$150k. Found on greenhouse. Notes: recruiter screen being scheduled."),
-  doc("application", "a2", "Application: AI Engineer at Northwind", "Status: interview since 2026-11-10. Applied 2026-10-28. Full-time. Target role: AI Engineer. Pay: $140k-$165k. Found on lever. Notes: technical interview with the platform team."),
-  doc("application", "a3", "Application: Forward Deployed Engineer at Tidewater", "Status: applied since 2026-10-20. Applied 2026-10-20. Full-time. Target role: Forward Deployed Engineer. Pay: salary not listed. Found on ashby. Notes: no response yet."),
-  doc("application", "a4", "Application: Automation Consultant at Brightline", "Status: rejected since 2026-11-01. Applied 2026-10-12. Contract or gig. Pay: $70/hr. Found on remoteok. Notes: they went with an agency."),
+  doc("application", "a1", "Application: Solutions Engineer at Kestrel", "Status: replied since 2026-11-09. Applied 2026-11-02. Target role: Solutions Engineer. Pay: $130k-$150k. Found on greenhouse. Notes: recruiter screen being scheduled."),
+  doc("application", "a2", "Application: AI Engineer at Northwind", "Status: interview since 2026-11-10. Applied 2026-10-28. Target role: AI Engineer. Pay: $140k-$165k. Found on lever. Notes: technical interview with the platform team."),
+  doc("application", "a3", "Application: Forward Deployed Engineer at Tidewater", "Status: applied since 2026-10-20. Applied 2026-10-20. Target role: Forward Deployed Engineer. Pay: salary not listed. Found on ashby. Notes: no response yet."),
+  doc("application", "a4", "Application: Automation Engineer at Brightline", "Status: rejected since 2026-11-01. Applied 2026-10-12. Target role: AI + Automation Engineer. Pay: $115k-$130k. Found on remoteok. Notes: they went with an agency."),
   doc("job", "j1", "Job match: AI Engineer at Halcyon Labs", "Shown 2026-11-11 in the morning brief. Location: Remote (US). Matches your target role AI Engineer. Pay: $150k-$180k. Source: greenhouse. Skills: Python, RAG, evals, TypeScript. Status: new."),
   doc("job", "j2", "Job match: Sales Engineer at Corvid", "Shown 2026-11-10 in the afternoon brief. Location: Denver, CO. Matches your target role Sales Engineer. Pay: $120k-$140k. Source: lever. Skills: demos, SQL, APIs. Status: dismissed. You passed on it."),
   doc("job", "j3", "Job match: Workflow Automation Engineer at Pallet", "Shown 2026-11-09 in the morning brief. Location: Remote. Matches your target role AI Workflow Engineer. Pay: $60/hr. Source: weworkremotely. Skills: n8n, webhooks, Zapier. Status: pursuing. You liked it."),
@@ -41,7 +41,7 @@ const CORPUS: KnowledgeDoc[] = [
   doc("project", "pr1", "Project: Kitchen scale app", "side-project, parked. Why: learn Bluetooth on iOS. Next step: decide whether to resume in January."),
   doc("project", "pr2", "Project: n8n certification", "learning, active. Why: automation roles ask for it. Next step: finish module 4 on error handling."),
   doc("brief", "b1", "Morning brief, 2026-11-11: A payment failed and an interview needs an answer", "Lumen Fiber could not charge your card. Dana at Northwind asked about a Thursday interview. Three job matches today, the best is AI Engineer at Halcyon Labs. One calendar conflict at 2 PM."),
-  doc("brief", "b2", "Afternoon brief, 2026-11-10: Quiet afternoon, one follow-up queued", "Nothing urgent. A follow-up to Tidewater is waiting in the Approval Queue. Car insurance is due in ten days."),
+  doc("brief", "b2", "Afternoon brief, 2026-11-10: Quiet afternoon, one follow-up queued", "Nothing urgent. A follow-up to Tidewater is waiting in the Apply Queue. Car insurance is due in ten days."),
 ];
 
 /** The same fictional corpus and questions, for the live eval that runs the real embedding model. */
@@ -79,15 +79,16 @@ const QUESTIONS: [string, string, string?][] = [
   ["When is Aunt Rosa's birthday?", "p3"],
   ["What is Sam training for?", "p2"],
   ["What did the brief say about a calendar conflict?", "b1"],
-  ["Is a follow-up waiting in the approval queue?", "b2"],
+  ["Is a follow-up waiting in the Apply Queue?", "b2"],
   ["What are the Thanksgiving plans?", "e6"],
   ["Who is the recruiter at Kestrel?", "e4"],
   ["Which jobs pay hourly rates for n8n work?", "j3"],
-  // Questions with no word in common with their answer. Embeddings exist for these.
-  ["What do I owe this month?", "r1", "No shared words: \"owe\" never appears next to \"premium due\". Search by meaning (embeddings) finds it; that half is not run in CI."],
-  ["Who should I catch up with soon?", "p2", "\"Catch up\" has no word in common with \"be in touch every 30 days\". Search by meaning finds it; that half is not run in CI."],
+  // Questions with no word in common with their answer. Search by meaning finds these in production;
+  // since 23 Nov 2026 keyword search does too, through query expansion (EXPANSIONS in retrieval.ts).
+  ["What do I owe this month?", "r1"],
+  ["Who should I catch up with soon?", "p2"],
   ["Is my internet about to be cut off?", "e3"],
-  ["Is my connection about to be shut off?", "e3", "The email says \"avoid interruption\" of the \"internet plan\": not one word in common. Search by meaning finds it; that half is not run in CI."],
+  ["Is my connection about to be shut off?", "e3"],
 ];
 
 export const EVAL_QUESTIONS: readonly [string, string, string?][] = QUESTIONS;

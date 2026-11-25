@@ -2,6 +2,7 @@ import { savedJobKey, todaysPicks } from "@/lib/domain/applyPlan";
 import type { RawJob } from "@/lib/domain/careerAgent";
 import { marketReport, numbersGrounded, observePostings, rulesSummary, type MarketPosting, type MarketReport } from "@/lib/domain/market";
 import { acceptInsights, eligible, observe, rulesInsights, slotAt, type MentorInput, type MentorInsight, type MentorSlot } from "@/lib/domain/mentor";
+import { acceptProfile, roleCard } from "@/lib/domain/roleProfile";
 import { rolesFrom } from "@/lib/domain/targetRoles";
 import type { Application, Approval, JobMatch } from "@/lib/domain/types";
 import type { EvalCase, EvalSuite } from "../types";
@@ -9,7 +10,7 @@ import type { EvalCase, EvalSuite } from "../types";
 // The Career desk. Three suites, one per new agent, all on fictional data:
 //   Scout     does it record what the market shows, including jobs you would not take?
 //   Analyst   are demand, pay, fit and gaps computed right, and is invented wording caught?
-//   Mentor    given a situation, does it raise the right thing first, remember what it
+//   Career Mentor    given a situation, does it raise the right thing first, remember what it
 //             said, stay quiet when there is nothing to say, and refuse a made-up fact?
 
 const TODAY = "2026-11-16";
@@ -28,7 +29,7 @@ const seen = observePostings(
     raw({ key: "c", title: "Staff Accountant", text: "Excel" }),
     raw({ key: "a", title: "AI Engineer", text: "Python, RAG and LangChain. $150,000 - $180,000 a year." }),
     raw({ key: "d", title: "Solutions Engineer", url: `https://jobs.example/${"x".repeat(700)}` }),
-    raw({ key: "e", title: "Solutions Engineer", text: "Contract, $80/hr, 3 months", typeHint: "gig" }),
+    raw({ key: "e", title: "Solutions Engineer", text: "Contract, $80/hr, 3 months" }),
   ],
   ROLES,
   REMOTE,
@@ -46,7 +47,7 @@ const scoutCases: EvalCase[] = [
   { name: "Ignores a title that is none of your roles", expected: "not recorded", actual: () => (got("c") ? "recorded" : "not recorded") },
   { name: "Records a posting once when two feeds carry it", expected: "1", actual: () => String(seen.filter((p) => p.key === "a").length) },
   { name: "Skips a posting whose link is too long to store", expected: "not recorded", actual: () => (got("d") ? "recorded" : "not recorded") },
-  { name: "Tells a gig from a full-time role", expected: "gig", actual: () => got("e")?.type ?? "not recorded" },
+  { name: "Leaves out a contract posting: full-time roles only", expected: "not recorded", actual: () => (got("e") ? "recorded" : "not recorded") },
   { name: "Has no opinion: nothing is scored or ranked", expected: "no score", actual: () => ("score" in (got("a") ?? {}) ? "scored" : "no score") },
 ];
 
@@ -54,7 +55,7 @@ const scoutCases: EvalCase[] = [
 // Analyst
 
 let n = 0;
-const post = (role: string, skills: string[], o: Partial<MarketPosting> = {}): MarketPosting => ({ id: `p${++n}`, key: `k${n}`, title: role, company: `Co ${n % 4}`, source: n % 2 ? "Greenhouse" : "Remote OK", url: "https://jobs.example/x", location: "Remote", role, type: "full-time", place: "remote", payMin: null, payMax: null, payUnit: "", skills, postedAt: null, firstSeen: day(-3), lastSeen: TODAY, createdAt: "", ...o });
+const post = (role: string, skills: string[], o: Partial<MarketPosting> = {}): MarketPosting => ({ id: `p${++n}`, key: `k${n}`, title: role, company: `Co ${n % 4}`, source: n % 2 ? "Greenhouse" : "Remote OK", url: "https://jobs.example/x", location: "Remote", role, place: "remote", payMin: null, payMax: null, payUnit: "", skills, postedAt: null, firstSeen: day(-3), lastSeen: TODAY, createdAt: "", ...o });
 const MARKET: MarketPosting[] = [
   ...Array.from({ length: 6 }, () => post("AI Engineer", ["Python", "RAG", "Kubernetes"], { payMin: 150_000, payMax: 170_000, payUnit: "year" })),
   ...Array.from({ length: 4 }, () => post("AI Engineer", ["Python", "Kubernetes"], { firstSeen: day(-10) })),
@@ -93,13 +94,13 @@ const analystCases: EvalCase[] = [
 ];
 
 // ---------------------------------------------------------------------------
-// Mentor
+// Career Mentor
 
 let a = 0;
-const app = (o: Partial<Application>): Application => ({ id: `app-${++a}`, company: `Company ${a}`, role: "AI Engineer", type: "full-time", targetRole: "AI Engineer", source: "greenhouse", url: "https://jobs.example/a", payText: "", tier: "semi", status: "applied", appliedOn: day(-10), statusAt: `${day(-10)}T15:00:00Z`, notes: "", origin: "atlas", externalId: "", createdAt: `${day(-10)}T15:00:00Z`, ...o });
+const app = (o: Partial<Application>): Application => ({ id: `app-${++a}`, company: `Company ${a}`, role: "AI Engineer", targetRole: "AI Engineer", source: "greenhouse", url: "https://jobs.example/a", payText: "", tier: "semi", status: "applied", appliedOn: day(-10), statusAt: `${day(-10)}T15:00:00Z`, notes: "", origin: "atlas", externalId: "", createdAt: `${day(-10)}T15:00:00Z`, ...o });
 const kit = (daysOld: number, kind: Approval["kind"] = "application"): Approval => ({ id: `ap-${++a}`, kind, title: "Apply", detail: "", url: "https://jobs.example/a", matchId: null, status: "pending", decidedAt: null, createdAt: `${day(-daysOld)}T15:00:00Z` });
 const LINKEDIN = `AI Engineer building agents, RAG and automation. ${"I build production systems with evals and tests. ".repeat(12)}`;
-const base = (o: Partial<MentorInput> = {}): MentorInput => ({ today: TODAY, slot: "morning", roles: ROLES.map((r) => r.name), applications: [], approvals: [], matches: [], market: null, skills: [], resumes: null, answersWritten: 9, answersTotal: 9, linkedin: LINKEDIN, plan: { fullTime: 3, gigs: 1 }, prior: [], ...o });
+const base = (o: Partial<MentorInput> = {}): MentorInput => ({ today: TODAY, slot: "morning", roles: ROLES.map((r) => r.name), applications: [], approvals: [], matches: [], market: null, skills: [], resumes: null, answersWritten: 9, answersTotal: 9, linkedin: LINKEDIN, plan: 3, prior: [], ...o });
 const said = (key: string, o: Partial<MentorInsight> = {}): MentorInsight => ({ id: `i-${++a}`, forDate: day(-1), slot: "morning", key, area: "activity", title: "Earlier insight", body: "b", action: "Do the thing", evidence: [], metric: "0", writer: "rules", status: "new", createdAt: "", ...o });
 const top = (i: MentorInput) => eligible(i)[0]?.id ?? "nothing";
 const has = (i: MentorInput, id: string) => (eligible(i).some((o) => o.id === id || o.id.startsWith(id)) ? "raised" : "not raised");
@@ -107,7 +108,26 @@ const recentOne = app({ appliedOn: day(-1), statusAt: `${day(-1)}T15:00:00Z` });
 const silent = (rate: number) => [...Array.from({ length: 10 }, (_, i) => app({ status: i < rate ? "replied" : "applied", statusAt: `${day(-9)}T15:00:00Z` })), recentOne];
 const market = (o: Partial<MarketReport> = {}): MarketReport => ({ ...report, ...o });
 
+const perfectJob: JobMatch = { id: "p1", key: "p1", title: "AI Engineer", company: "Northwind", url: "https://job-boards.greenhouse.io/northwind/jobs/7", source: "Greenhouse", location: "Remote", role: "AI Engineer", payText: "$120k", postedAt: null, score: 80, shownOn: day(-2), shownSlot: "morning", rating: 2, status: "pursuing", skills: ["Python", "RAG"], createdAt: `${day(-2)}T15:00:00Z` };
+const perfectKit: Approval = { ...kit(2), matchId: "p1", url: perfectJob.url };
+const knows = [{ id: "c1", name: "Dana Lee", circle: "network", email: null, phone: null, cadenceDays: 0, lastContactAt: null, notes: "Engineer at Northwind" }] as unknown as NonNullable<MentorInput["contacts"]>;
+
+const profiled = roleCard("AI Engineer", 1, [{ role: "AI Engineer", target: true, postings: 42, thisWeek: 9, lastWeek: 6, trend: "up", reachable: 0.8, payMedian: 120_000, asked: [{ skill: "Python", share: 0.7, shown: true, projects: [] }, { skill: "RAG", share: 0.5, shown: false, projects: [] }], qualified: 0.62, projects: [], applied: 4, responses: 1, thin: false, score: 70 }], []);
+const profile = { does: "You connect a customer's systems to the product: you learn what they need, build the integration, and stay with them until it runs.", tempo: "Customer-paced, with several accounts moving at once and results judged by what goes live.", project: "Build a small RAG service behind an API and write up how a customer would connect it.", closeSkill: "RAG", closeWhy: "RAG is asked for in 50% of the postings and nothing you have built shows it." };
+const kept = (o: Partial<typeof profile>) => (acceptProfile({ ...profile, ...o }, profiled) ? "kept" : "dropped");
+
 const mentorCases: EvalCase[] = [
+  // Target Roles: the weekly profile of a role
+  { name: "A role profile that rests on the role's facts is kept", expected: "kept", actual: () => kept({}) },
+  { name: "A role profile that adds a statistic is dropped", expected: "dropped", actual: () => kept({ tempo: "Fast: people here close 12 deals a quarter and are judged on it alone." }) },
+  { name: "A role profile cannot name a gap the role does not have", expected: "dropped", actual: () => kept({ closeSkill: "Kubernetes" }) },
+  { name: "A role profile's project cannot use a skill the postings do not ask for", expected: "dropped", actual: () => kept({ project: "Deploy a small service on AWS Lambda and document how a customer would call it." }) },
+  { name: "A role the Analyst has not measured gets no profile, whatever the model writes", expected: "no profile", actual: () => (acceptProfile(profile, roleCard("Data Engineer", 2, [], [])) ? "a profile" : "no profile") },
+  // The jobs he most wants
+  { name: "A job marked Perfect fit and not applied to comes before the daily plan", expected: "perfect:p1", actual: () => top(base({ applications: [recentOne], approvals: [perfectKit], perfect: [perfectJob] })) },
+  { name: "A perfect fit's advice starts with the person he knows there", expected: "yes", actual: () => (/^Message Dana Lee about Northwind before you apply/.test(observe(base({ approvals: [perfectKit], perfect: [perfectJob], contacts: knows })).find((o) => o.id === "perfect:p1")?.action ?? "") ? "yes" : "no") },
+  { name: "A perfect fit says which asked-for skills he has, as numbers a reader can check", expected: "yes", actual: () => (observe(base({ approvals: [perfectKit], perfect: [perfectJob], skills: ["Python"] })).find((o) => o.id === "perfect:p1")?.fact.includes("you have 1 of 2, and not RAG") ? "yes" : "no") },
+  { name: "With no job marked Perfect fit, nothing is said about one", expected: "not raised", actual: () => has(base({ applications: [recentOne] }), "perfect:") },
   { name: "With no applications at all, that is the first thing", expected: "activity:none", actual: () => top(base()) },
   { name: "Five quiet days: the gap comes first in the morning", expected: "activity:gap", actual: () => top(base({ applications: [app({ appliedOn: day(-5) })] })) },
   { name: "Ten applications, no replies: the approach is the problem, not the volume", expected: "results:overall", actual: () => top(base({ applications: silent(0) })) },
@@ -124,7 +144,7 @@ const mentorCases: EvalCase[] = [
   { name: "A gap your resume already mentions is only an unticked box", expected: "raised", actual: () => has(base({ market: market(), skills: HAVE, resumes: { names: ["AI Engineer"], skills: ["Kubernetes"] } }), "skills:unmarked:Kubernetes") },
   { name: "Priority and strengths pointing different ways is raised", expected: "raised", actual: () => has(base({ skills: HAVE, market: market({ bestFit: { role: "Solutions Engineer", coverage: 0.9, postings: 5 } }) }), "targeting:best-fit") },
   { name: "No market report means no claims about the market", expected: "none", actual: () => observe(base({ skills: HAVE })).filter((o) => o.area === "skills" || o.id.startsWith("targeting:best")).map((o) => o.id).join(", ") || "none" },
-  { name: "Applications spread thin across roles are raised", expected: "raised", actual: () => has(base({ applications: ["AI Engineer", "Solutions Engineer", "Forward Deployed Engineer", "GTM Engineer", "AI Engineer", "Software Engineer"].map((r) => app({ targetRole: r, appliedOn: day(-2), statusAt: `${day(-2)}T15:00:00Z` })) }), "targeting:spread") },
+  { name: "Applications spread thin across roles are raised", expected: "raised", actual: () => has(base({ applications: ["AI Engineer", "Solutions Engineer", "Forward Deployed Engineer", "AI Automation Engineer", "AI Engineer", "Software Engineer"].map((r) => app({ targetRole: r, appliedOn: day(-2), statusAt: `${day(-2)}T15:00:00Z` })) }), "targeting:spread") },
   { name: "Top roles with no resume text are raised", expected: "raised", actual: () => has(base({ resumes: { names: ["Solutions Engineer"], skills: [] } }), "resume:no-text") },
   { name: "When resumes could not be read, it does not claim they are missing", expected: "not raised", actual: () => has(base({ resumes: null }), "resume:no-text") },
   { name: "A LinkedIn opening that never says your first-priority role", expected: "raised", actual: () => has(base({ linkedin: `Builder of things. ${"I like software and teams. ".repeat(30)}` }), "profile:headline") },
@@ -133,7 +153,7 @@ const mentorCases: EvalCase[] = [
   { name: "\"Entry-level\" in the first lines", expected: "raised", actual: () => has(base({ linkedin: `${ROLES[0]!.name}, entry-level | integrations and automation. ${"I build integrations and ship them. ".repeat(20)}` }), "profile:wording") },
   { name: "A headline that names the title plainly", expected: "not raised", actual: () => has(base({ linkedin: `${ROLES[0]!.name} | integrations and automation. ${"I build integrations and ship them. ".repeat(20)}` }), "profile:wording") },
   { name: "\"Seeking\" far down the About, not in the first lines", expected: "not raised", actual: () => has(base({ linkedin: `${ROLES[0]!.name} | integrations and automation. ${"I build integrations and ship them. ".repeat(20)} Seeking a collaborative team.` }), "profile:wording") },
-  { name: "Gigs taking more than their share of the week", expected: "raised", actual: () => has(base({ applications: Array.from({ length: 6 }, (_, i) => app({ type: i < 4 ? "gig" : "full-time", appliedOn: day(-2), statusAt: `${day(-2)}T15:00:00Z` })) }), "gigs:share") },
+  { name: "Never advises gig or side work: full-time roles only", expected: "never", actual: () => ([base(), base({ applications: Array.from({ length: 6 }, () => app({ appliedOn: day(-2), statusAt: `${day(-2)}T15:00:00Z` })) }), base({ market: market(), skills: HAVE, applications: silent(0) })].flatMap(observe).some((o) => /gig|freelanc|proposal|upwork|side (work|hustle|income)/i.test(`${o.id} ${o.area} ${o.fact} ${o.action}`)) ? "advised" : "never") },
   { name: "Meeting the day's plan is acknowledged", expected: "raised", actual: () => has(base({ slot: "evening", applications: Array.from({ length: 3 }, () => app({ appliedOn: TODAY, statusAt: `${TODAY}T15:00:00Z` })) }), "win:plan") },
   // Memory
   { name: "Memory: an insight you dismissed stays away", expected: "not raised", actual: () => has(base({ prior: [said("activity:none", { status: "dismissed", forDate: day(-5) })] }), "activity:none") },
@@ -146,7 +166,7 @@ const mentorCases: EvalCase[] = [
   { name: "Evening: strategy outweighs the queue", expected: "resume before queue", actual: () => { const e = eligible(base({ slot: "evening", applications: [recentOne], approvals: Array.from({ length: 3 }, () => kit(2)), market: market(), skills: ["Python"], resumes: { names: ROLES.map((r) => r.name), skills: [] } })).map((o) => o.id); return e.indexOf("resume:unlisted:Python") < e.indexOf("queue:waiting") ? "resume before queue" : e.join(", "); } },
   // Restraint and grounding
   { name: "Says at most two things a run", expected: "2", actual: () => String(rulesInsights(base({ linkedin: "", answersWritten: 2, applications: [app({ appliedOn: day(-6) })], approvals: Array.from({ length: 5 }, () => kit(5)) })).length) },
-  { name: "Stays silent when nothing clears the bar", expected: "0", actual: () => String(rulesInsights(base({ plan: { fullTime: 0, gigs: 0 }, applications: [recentOne] })).length) },
+  { name: "Stays silent when nothing clears the bar", expected: "0", actual: () => String(rulesInsights(base({ plan: 0, applications: [recentOne] })).length) },
   { name: "Every insight carries the fact it rests on", expected: "yes", actual: () => (rulesInsights(base()).every((i) => i.evidence.length === 1 && i.evidence[0]!.startsWith(i.title)) ? "yes" : "no") },
   { name: "Two insights are two subjects, never the same area twice", expected: "2 areas", actual: () => { const r = rulesInsights(base({ applications: [app({ appliedOn: day(-6) })], approvals: Array.from({ length: 5 }, () => kit(5)) })); return `${new Set(r.map((i) => i.area)).size} areas`; } },
   { name: "A model cannot spend both insights on one area either", expected: "1", actual: () => { const i = base({ applications: [app({ appliedOn: day(-6) })] }); const pool = eligible(i); const p = (id: string) => ({ evidence: [id], title: "Point", insight: "Stated plainly.", action: "Do it." }); return String(acceptInsights(i, pool, [p("activity:gap"), p("activity:today")]).length); } },
@@ -161,17 +181,17 @@ const mentorCases: EvalCase[] = [
 // ---------------------------------------------------------------------------
 // Applications: the day's picks (scored with the Applications Agent's suite)
 
-const match = (o: Partial<JobMatch>): JobMatch => ({ id: `m-${++a}`, key: `k-${a}`, type: "full-time", title: "AI Engineer", company: `Co ${a}`, url: "https://jobs.example/m", source: "greenhouse", location: "Remote", role: "AI Engineer", payText: "", postedAt: null, score: 50, shownOn: TODAY, shownSlot: "morning", rating: 0, status: "new", createdAt: "", ...o });
-const picks = (ms: JobMatch[], apps: Application[] = []) => todaysPicks(ms, apps, TODAY, { fullTime: 3, gigs: 1 });
+const match = (o: Partial<JobMatch>): JobMatch => ({ id: `m-${++a}`, key: `k-${a}`, title: "AI Engineer", company: `Co ${a}`, url: "https://jobs.example/m", source: "greenhouse", location: "Remote", role: "AI Engineer", payText: "", postedAt: null, score: 50, shownOn: TODAY, shownSlot: "morning", rating: 0, status: "new", createdAt: "", ...o });
+const picks = (ms: JobMatch[], apps: Application[] = []) => todaysPicks(ms, apps, TODAY, 3).picks;
 
 export const applyCases: EvalCase[] = [
-  { name: "Picks: no more than the day's plan per track", expected: "3 and 1", actual: () => picks([...Array.from({ length: 6 }, () => match({})), ...Array.from({ length: 4 }, () => match({ type: "gig" }))]).map((t) => t.picks.length).join(" and ") },
-  { name: "Picks: what you already sent today comes off the list", expected: "1", actual: () => String(picks(Array.from({ length: 6 }, () => match({})), [app({ appliedOn: TODAY }), app({ appliedOn: TODAY })])[0]!.picks.length) },
-  { name: "Picks: a job you liked comes before a higher score", expected: "liked", actual: () => picks([match({ score: 90, title: "high" }), match({ score: 10, rating: 1, title: "liked" })])[0]!.picks[0]!.title },
-  { name: "Picks: never a job you passed on, pursued or dismissed", expected: "0", actual: () => String(picks([match({ rating: -1 }), match({ status: "pursuing" }), match({ status: "dismissed" }), match({ status: "applied" })])[0]!.picks.length) },
-  { name: "Picks: one job per company", expected: "1", actual: () => String(picks([match({ company: "Acme" }), match({ company: "acme" })])[0]!.picks.length) },
-  { name: "Picks: gigs never take a full-time slot", expected: "full-time only", actual: () => (picks([match({ type: "gig" }), match({})])[0]!.picks.every((m) => m.type === "full-time") ? "full-time only" : "mixed") },
-  { name: "Picks: a match older than three days is stale", expected: "0", actual: () => String(picks([match({ shownOn: day(-5) })])[0]!.picks.length) },
+  { name: "Picks: no more than the day's plan", expected: "3", actual: () => String(picks(Array.from({ length: 6 }, () => match({}))).length) },
+  { name: "Picks: what you already sent today comes off the list", expected: "1", actual: () => String(picks(Array.from({ length: 6 }, () => match({})), [app({ appliedOn: TODAY }), app({ appliedOn: TODAY })]).length) },
+  { name: "Picks: a job you liked comes before a higher score", expected: "liked", actual: () => picks([match({ score: 90, title: "high" }), match({ score: 10, rating: 1, title: "liked" })])[0]!.title },
+  { name: "Picks: never a job you passed on, pursued or dismissed", expected: "0", actual: () => String(picks([match({ rating: -1 }), match({ status: "pursuing" }), match({ status: "dismissed" }), match({ status: "applied" })]).length) },
+  { name: "Picks: one job per company", expected: "1", actual: () => String(picks([match({ company: "Acme" }), match({ company: "acme" })]).length) },
+  { name: "Picks: a plan already met leaves nothing to pick", expected: "0", actual: () => String(picks(Array.from({ length: 6 }, () => match({})), Array.from({ length: 3 }, () => app({ appliedOn: TODAY }))).length) },
+  { name: "Picks: a match older than three days is stale", expected: "0", actual: () => String(picks([match({ shownOn: day(-5) })]).length) },
   { name: "Save a job: the same link saved twice is one job", expected: "same", actual: () => (savedJobKey("https://www.linkedin.com/jobs/view/123/?ref=x") === savedJobKey("https://www.linkedin.com/jobs/view/123") ? "same" : "different") },
 ];
 

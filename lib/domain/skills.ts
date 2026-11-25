@@ -52,7 +52,7 @@ export const SKILLS: readonly Skill[] = [
   { name: "Salesforce", terms: ["salesforce", "crm integration", "hubspot"], group: "Data" },
   { name: "Customer-facing demos", terms: ["demos", "product demos", "technical demos", "proof of concept", "proofs of concept", "poc", "pocs", "pre-sales", "presales"], group: "Practice" },
   { name: "Solution architecture", terms: ["solution architecture", "solutions architecture", "technical discovery", "architecture design"], group: "Practice" },
-  { name: "Security & compliance", terms: ["soc 2", "soc2", "security", "compliance", "hipaa"], group: "Practice" },
+  { name: "Security & compliance", terms: ["soc 2", "soc2", "hipaa", "iso 27001", "fedramp", "gdpr", "pci dss", "security compliance", "application security", "information security", "cloud security", "security engineering", "secure coding", "threat modeling"], group: "Practice" },
 ];
 
 const esc = (s: string) => s.replace(/[.*+?^${}()|[\]\\/]/g, "\\$&");
@@ -122,7 +122,7 @@ const PROJECTS: Record<string, Omit<PortfolioProject, "skill">> = {
   MCP: { title: "An MCP server for Atlas", pitch: "Expose Atlas's briefs, renewals and job matches as MCP tools any assistant can use.", steps: ["Define read-only tools with input schemas", "Serve them over MCP with owner-only auth", "Connect it to Claude and record a demo", "Document the tools like a product"] },
   "Vector databases": { title: "Semantic job search over your matched postings", pitch: "Find similar jobs by meaning, not keywords.", steps: ["Embed matched job titles and text", "Store in pgvector", "Query 'jobs like this one'", "Show the results in a small web page"] },
   "APIs & integrations": { title: "A Calendar + Gmail + Slack integration hub", pitch: "One small service that syncs events and messages across tools.", steps: ["Connect two APIs with OAuth or keys", "Normalize events into one schema", "Handle retries and rate limits", "Write integration docs like a product"] },
-  "Customer-facing demos": { title: "A 5-minute product demo of Atlas", pitch: "Record a crisp, customer-style demo with a discovery story.", steps: ["Write a one-page customer scenario", "Script the demo around three outcomes", "Record and edit to 5 minutes", "Post it on LinkedIn and Upwork"] },
+  "Customer-facing demos": { title: "A 5-minute product demo of Atlas", pitch: "Record a crisp, customer-style demo with a discovery story.", steps: ["Write a one-page customer scenario", "Script the demo around three outcomes", "Record and edit to 5 minutes", "Post it on LinkedIn and link it from your GitHub profile"] },
   "Solution architecture": { title: "Reference architecture for an AI assistant", pitch: "A diagram and design doc a customer could approve.", steps: ["Map requirements and constraints", "Draw the architecture with trade-offs", "Cover security and cost", "Publish the doc as a portfolio PDF"] },
   AWS: { title: "Deploy an Atlas agent on AWS Lambda", pitch: "Run one agent serverlessly with infrastructure as code.", steps: ["Package an agent as a Lambda", "Schedule it with EventBridge", "Store secrets in Secrets Manager", "Write up costs and trade-offs"] },
   Kubernetes: { title: "Run a small AI service on Kubernetes", pitch: "Containerize and deploy a model-backed API with autoscaling.", steps: ["Dockerize a FastAPI service", "Deploy to a local cluster (kind)", "Add health checks and autoscaling", "Document the setup"] },
@@ -136,8 +136,13 @@ export const PROJECT_SKILLS: readonly string[] = Object.keys(PROJECTS);
 const GENERIC = (skill: string): Omit<PortfolioProject, "skill"> => ({
   title: `A small ${skill} project tied to Atlas`,
   pitch: `Show hands-on ${skill} by adding one real feature to Atlas or a companion tool.`,
-  steps: [`Pick one Atlas feature that ${skill} would improve`, "Build the smallest version that works", "Write a README with screenshots", "Add it to LinkedIn and your Upwork portfolio"],
+  steps: [`Pick one Atlas feature that ${skill} would improve`, "Build the smallest version that works", "Write a README with screenshots", "Add it to LinkedIn and your GitHub profile"],
 });
+
+/** The portfolio project that shows one skill: its own recipe when there is one, else a general plan. */
+export function projectForSkill(skill: string): PortfolioProject {
+  return { skill, ...(PROJECTS[skill] ?? GENERIC(skill)) };
+}
 
 /** The project for the month: it closes your biggest gap. */
 export function portfolioProject(gaps: SkillCount[]): PortfolioProject | null {

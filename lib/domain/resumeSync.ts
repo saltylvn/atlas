@@ -7,6 +7,8 @@
 // a page needs writing, and builds the Notion block. Figma's and Notion's text is data:
 // it is trimmed, length-limited and never executed or rendered as markup.
 
+import { weekdayIndex } from "./dates";
+import type { LocalDate } from "./types";
 import { hashPassage } from "./knowledge";
 
 // ---------------------------------------------------------------------------
@@ -316,3 +318,19 @@ export function syncSummary(r: ResumeSyncReport): string {
 
 /** True when the run found something you need to look at. */
 export const needsYou = (r: ResumeSyncReport): boolean => r.conflicts.length > 0 || r.unreadable.length > 0;
+
+// ---------------------------------------------------------------------------
+// The weekly schedule
+
+/** The resume update runs once a week, on Monday (weekdayIndex 0). */
+export const isResumeSyncDay = (day: LocalDate): boolean => weekdayIndex(day) === 0;
+
+/** What Atlas tells you each Monday about the weekly resume update. `report` is null when it could not run. */
+export function weeklyResumeNotice(report: ResumeSyncReport | null, why = ""): { title: string; body: string; url: string } {
+  const url = "/roles#resume-sync";
+  if (!report) return { title: "Weekly resume update did not run", body: (why || "Figma or Notion could not be read.").slice(0, 200), url };
+  const n = report.updated.length;
+  if (needsYou(report)) return { title: "Weekly resume update needs a look", body: "A resume changed in both Figma and Notion, or a frame could not be read.", url };
+  if (n > 0) return { title: `Weekly resume update: ${n} resume${n === 1 ? "" : "s"} updated in Notion`, body: "The new text is in Notion and Ask Atlas. Export the PDF from Figma and put it in that row's Resume file: applications send that file.", url };
+  return { title: "Weekly resume update: no changes", body: "Your resumes in Notion already match Figma.", url };
+}

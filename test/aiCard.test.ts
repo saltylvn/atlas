@@ -44,12 +44,12 @@ describe("Mission Control's AI card", () => {
   });
 });
 
-describe("Today's Mentor card", () => {
+describe("Today's Career Mentor card", () => {
   it("stays away when nothing is open and the last review went fine, and offers a retry when it did not", async () => {
     vi.doMock("@/components/client/CareerDesk", () => ({ RefreshMentorButton: () => createElement("button", null, "Refresh and review") }));
     const { MentorCard } = await import("@/components/MentorCard");
     expect(renderToStaticMarkup(createElement(MentorCard, { insights: [] }))).toBe("");
-    const html = renderToStaticMarkup(createElement(MentorCard, { insights: [], retry: "The Mentor's last review did not finish." }));
+    const html = renderToStaticMarkup(createElement(MentorCard, { insights: [], retry: "The Career Mentor's last review did not finish." }));
     expect(html).toContain("did not finish");
     expect(html).toContain("Refresh and review");
   });

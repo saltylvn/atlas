@@ -6,7 +6,7 @@ import { CardHeader, Empty, Pill, timeAgo } from "@/components/ui";
 
 const SEVERITY: Record<QaSeverity, { label: string; color: string }> = {
   high: { label: "High", color: "var(--c-red)" },
-  medium: { label: "Medium", color: "var(--c-orange)" },
+  medium: { label: "Medium", color: "var(--c-warn)" },
   low: { label: "Low", color: "var(--c-grey)" },
 };
 
@@ -22,7 +22,7 @@ export function QaCard({ latest, now }: { latest: StoredQaReport | null; now: Da
       <CardHeader
         title="QA review"
         icon="shield"
-        hint="The QA Agent reviews Atlas itself every Sunday evening: runs, briefs, the AI model, eval scores, connections, tokens refused at the machine endpoints, your queues and whether each main tab was used. By rules, never the AI model. It recommends; it changes nothing."
+        hint="The QA bot reviews Atlas itself every Sunday evening: runs, briefs, the AI model, eval scores, connections, tokens refused at the machine endpoints, your queues and whether each main tab was used. By rules, never the AI model. It recommends; it changes nothing."
         action={<RunNowButton agent="qa" />}
       />
       {!r ? (
@@ -94,7 +94,7 @@ export function QaCard({ latest, now }: { latest: StoredQaReport | null; now: Da
             <ul className="mt-2 space-y-1 text-sm">
               {r.checks.map((c) => (
                 <li key={c.name} className="flex flex-wrap items-baseline gap-x-2">
-                  <span style={{ color: c.ok ? "var(--c-green)" : "var(--c-orange)" }}>{c.ok ? "✓" : "✗"}</span>
+                  <span style={{ color: c.ok ? "var(--c-green)" : "var(--c-warn-ink)" }}>{c.ok ? "✓" : "✗"}</span>
                   <span className="font-medium">{c.name}</span>
                   <span className="text-xs text-ink-3 break-words">{c.note}</span>
                 </li>

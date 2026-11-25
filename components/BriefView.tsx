@@ -1,3 +1,4 @@
+import { APPLY_QUEUE } from "@/lib/domain/applyLane";
 import Link from "next/link";
 import type { BriefReport, HotKind } from "@/lib/domain/chiefOfStaff";
 import { SLOT_LABEL } from "@/lib/domain/briefSchedule";
@@ -5,9 +6,12 @@ import type { BriefEvent, ImportantKind } from "@/lib/domain/calendarAgent";
 import { JOB_LABEL } from "@/lib/domain/emailAgent";
 import { billLine } from "@/lib/domain/financeAgent";
 import { areaOf, type NewsArea } from "@/lib/domain/newsAgent";
-import { localDate, localTime, shortDate } from "@/lib/domain/dates";
+import { ago, localDate, localTime, shortDate } from "@/lib/domain/dates";
+import { MORE_JOBS_HREF } from "@/lib/domain/moreMatches";
+import { TIER_LABEL } from "@/lib/domain/workplace";
 import { BriefBody } from "./client/BriefActions";
 import { FitButton, MatchButtons } from "./client/CareerActions";
+import { ResumeLink } from "./ResumeLink";
 import { ScorecardTiles } from "./ScorecardTiles";
 import { Icon } from "./Icon";
 import { APPROVALS_HREF } from "@/components/ApprovalQueue";
@@ -18,14 +22,14 @@ import { CardHeader, Empty, Pill, hue } from "./ui";
 
 const HOT: Record<HotKind, { label: string; color: string }> = {
   offer: { label: "Offer", color: "var(--c-green)" },
-  interview: { label: "Interview", color: "var(--c-purple)" },
-  reply: { label: "Reply", color: "var(--c-orange)" },
+  interview: { label: "Interview", color: "var(--c-indigo)" },
+  reply: { label: "Reply", color: "var(--c-warn)" },
 };
-const AREA_COLOR: Record<NewsArea, string> = { tech: "var(--c-blue)", politics: "var(--c-orange)", world: "var(--c-teal)" };
+const AREA_COLOR: Record<NewsArea, string> = { tech: "var(--c-blue)", politics: "var(--c-brown)", world: "var(--c-slate)" };
 const AREA_SHORT: Record<NewsArea, string> = { tech: "Tech", politics: "Politics", world: "World" };
 
 const KIND: Record<ImportantKind, { label: string; color: string }> = {
-  interview: { label: "Interview", color: "var(--c-purple)" },
+  interview: { label: "Interview", color: "var(--c-indigo)" },
   appointment: { label: "Appointment", color: "var(--c-blue)" },
 };
 
@@ -61,6 +65,8 @@ export function BriefView({
 }) {
   const tz = timeZone;
   const r = report;
+  // The brief keeps its order: Utah first, then remote, then offices nearby.
+  const fits = r.matches?.fullTime ?? [];
   return (
     <div className="space-y-5">
       <section className="card card-brand card-pad md:p-7">
@@ -75,9 +81,9 @@ export function BriefView({
         )}
 
         {r.mentor && r.mentor.length > 0 && (
-          <div className="mb-5 rounded-lg border border-[color-mix(in_oklab,var(--c-purple)_35%,transparent)] bg-[color-mix(in_oklab,var(--c-purple)_7%,transparent)] p-3">
-            <p className="eyebrow mb-2 flex items-center gap-1.5 text-[var(--c-purple)]">
-              <Icon name="sparkle" size={13} /> From your Mentor
+          <div className="mb-5 rounded-lg border border-[color-mix(in_oklab,var(--c-ai)_35%,transparent)] bg-[color-mix(in_oklab,var(--c-ai)_7%,transparent)] p-3">
+            <p className="eyebrow mb-2 flex items-center gap-1.5 text-[var(--c-ai-ink)]">
+              <Icon name="sparkle" size={13} /> From your Career Mentor
             </p>
             <ul className="space-y-2">
               {r.mentor.map((m) => (
@@ -95,8 +101,8 @@ export function BriefView({
         )}
 
         {r.hotList.length > 0 && (
-          <div className="mb-5 rounded-lg border border-[color-mix(in_oklab,var(--c-orange)_40%,transparent)] bg-[color-mix(in_oklab,var(--c-orange)_8%,transparent)] p-3">
-            <p className="eyebrow mb-2 flex items-center gap-1.5 text-[var(--c-orange)]">
+          <div className="mb-5 rounded-lg border border-[color-mix(in_oklab,var(--c-warn)_40%,transparent)] bg-[color-mix(in_oklab,var(--c-warn)_8%,transparent)] p-3">
+            <p className="eyebrow mb-2 flex items-center gap-1.5 text-[var(--c-warn-ink)]">
               <Icon name="alert" size={13} /> Hot List
             </p>
             <ul className="space-y-2">
@@ -137,6 +143,19 @@ export function BriefView({
           <BriefBody headline={r.headline} summary={r.summary} aiReady={aiReady && !stored} />
         )}
       </section>
+
+      {/* Good fits first, one list. */}
+      {fits.length > 0 && (
+        <FitsSection
+          title={`Good fits (${fits.length})`}
+          hint={`👍 sends a job to your ${APPLY_QUEUE}, to apply to on your MacBook with the Safari extension`}
+          empty="None in this brief."
+          matches={fits}
+          at={stored?.createdAt ?? r.generatedAt}
+          state={archive ? undefined : matchState}
+          links={!archive}
+        />
+      )}
 
       {r.errors.length > 0 && (
         <section className="banner-warn rounded-lg px-4 py-3 text-sm">
@@ -211,7 +230,7 @@ export function BriefView({
                       )}
                       {iv.prep && iv.prep.length > 0 && (
                         <details className="mt-1.5">
-                          <summary className="cursor-pointer text-xs font-medium text-ink-2">Prep notes from the Applications Agent</summary>
+                          <summary className="cursor-pointer text-xs font-medium text-ink-2">Prep notes from the Applications bot</summary>
                           <ul className="mt-1.5 list-disc space-y-0.5 pl-5 text-xs text-ink-2">
                             {iv.prep.map((p) => (
                               <li key={p}>{p}</li>
@@ -283,7 +302,7 @@ export function BriefView({
                 <ul className="space-y-1">
                   {r.email.jobs.map((j, i) => (
                     <li key={i} className="text-sm">
-                      <span className="font-medium" style={{ color: j.kind === "interview" ? "var(--c-orange)" : undefined }}>
+                      <span className="font-medium" style={{ color: j.kind === "interview" ? "var(--c-warn)" : undefined }}>
                         {JOB_LABEL[j.kind]}
                       </span>{" "}
                       · {j.fromName}
@@ -377,8 +396,8 @@ export function BriefView({
               <div className="grid grid-cols-3 gap-2 text-center">
                 {(
                   [
-                    ["Active", r.jobs.active, "var(--c-blue)"],
-                    ["Interviews", r.jobs.interviewing, "var(--c-purple)"],
+                    ["Active", r.jobs.active, "var(--c-slate)"],
+                    ["Interviews", r.jobs.interviewing, "var(--c-indigo)"],
                     ["Offers", r.jobs.offers, "var(--c-green)"],
                   ] as const
                 ).map(([label, n, color]) => (
@@ -482,7 +501,7 @@ export function BriefView({
             hint="Your job search this week"
             action={
               <Link href="/applications" className="btn btn-ghost btn-sm">
-                Applications
+                Pipeline
               </Link>
             }
           />
@@ -490,61 +509,60 @@ export function BriefView({
         </section>
       )}
 
-      {r.matches && (r.matches.fullTime.length > 0 || r.matches.gigs.length > 0) && (
-        <section className="card card-pad">
-          <CardHeader
-            title={r.slot === "afternoon" ? "New job matches since the morning" : "Job matches"}
-            icon="jobs"
-            hint={`${r.matches.fullTime.length} full-time · ${r.matches.gigs.length} gigs · freshest first · 👍 adds one to your apply queue`}
-            action={
-              <Link href={APPROVALS_HREF} className="btn btn-ghost btn-sm">
-                Approval Queue
-              </Link>
-            }
-          />
-          <div className="grid gap-5 lg:grid-cols-2">
-            {(
-              [
-                ["Full-time", r.matches.fullTime],
-                ["Gigs and contract", r.matches.gigs],
-              ] as const
-            ).map(([label, list]) => (
-              <div key={label}>
-                <p className="eyebrow mb-2">{label}</p>
-                {list.length === 0 ? (
-                  <Empty>{label === "Full-time" ? "No new full-time matches." : "No new gigs from the public feeds. Try the saved Upwork and Contra searches on Applications."}</Empty>
-                ) : (
-                  <ul className="divide-y divide-line">
-                    {list.map((m) => (
-                      <li key={m.id} className="py-2.5">
-                        <a href={m.url} target="_blank" rel={m.source === "Remote OK" ? "noopener" : "noopener noreferrer"} className="text-sm font-semibold hover:text-brand">
-                          {m.title}
-                        </a>
-                        <p className="text-xs text-ink-2">
-                          {m.company} · {m.payText} · {m.source}
-                          {m.postedAt ? ` · ${ago(m.postedAt, stored?.createdAt ?? r.generatedAt)}` : ""}
-                        </p>
-                        <div className="mt-1 flex flex-wrap items-center gap-2">
-                          <Pill color="var(--c-purple)">{m.role}</Pill>
-                          {m.referral && <Pill color="var(--c-green)">You know {m.referral}</Pill>}
-                          {!archive && matchState && <MatchButtons id={m.id} rating={matchState[m.id]?.rating ?? 0} queued={matchState[m.id]?.status === "pursuing"} />}
-                          {!archive && matchState && <FitButton id={m.id} />}
-                        </div>
-                      </li>
-                    ))}
-                  </ul>
-                )}
-              </div>
-            ))}
-          </div>
-        </section>
-      )}
     </div>
   );
 }
 
-/** "3h ago", "2d ago": how old a posting was when the brief was made. */
-function ago(iso: string, at: string): string {
-  const h = Math.max(0, Math.round((Date.parse(at) - Date.parse(iso)) / 3_600_000));
-  return h < 24 ? `${h}h ago` : `${Math.round(h / 24)}d ago`;
+type Fit = NonNullable<BriefReport["matches"]>["fullTime"][number];
+
+/** One of the brief's two Good fits lists. `state` is absent in an archived brief, which shows no thumbs. */
+function FitsSection({ title, hint, empty, matches, at, state, links }: { title: string; hint: string; empty: string; matches: Fit[]; at: string; state?: Record<string, { rating: number; status: string }>; links: boolean }) {
+  return (
+    <section className="card card-pad">
+      <CardHeader
+        title={title}
+        icon="jobs"
+        hint={hint}
+        action={
+          links ? (
+            <span className="flex flex-wrap justify-end gap-2">
+              <Link href={MORE_JOBS_HREF} className="btn btn-ghost btn-sm">
+                Find more
+              </Link>
+              <Link href={APPROVALS_HREF} className="btn btn-ghost btn-sm">
+                Apply queues
+              </Link>
+            </span>
+          ) : undefined
+        }
+      />
+      {matches.length === 0 ? (
+        <p className="text-sm text-ink-3">{empty}</p>
+      ) : (
+        <ul className="grid gap-x-8 lg:grid-cols-2">
+          {matches.map((m) => (
+            <li key={m.id} className="border-t border-line py-2.5">
+              <a href={m.url} target="_blank" rel={m.source === "Remote OK" ? "noopener" : "noopener noreferrer"} className="text-sm font-semibold hover:text-brand">
+                {m.title}
+              </a>
+              <p className="text-xs text-ink-2">
+                {m.company} · {m.payText} · {m.source}
+                {m.postedAt ? ` · ${ago(m.postedAt, at)}` : ""}
+              </p>
+              {m.location && <p className="text-xs text-ink-3">{m.location}</p>}
+              <div className="mt-1 flex flex-wrap items-center gap-2">
+                <Pill color="var(--c-career)">{m.role}</Pill>
+                {m.tier && <Pill color="var(--c-grey)">{TIER_LABEL[m.tier]}</Pill>}
+                {m.target === "reaches" && <Pill color="var(--c-green)">Reaches your target</Pill>}
+                {m.referral && <Pill color="var(--c-green)">You know {m.referral}</Pill>}
+                {state && <MatchButtons id={m.id} rating={state[m.id]?.rating ?? 0} queued={state[m.id]?.status === "pursuing"} />}
+                {state && <FitButton id={m.id} />}
+              </div>
+              {state && <ResumeLink role={m.role} from="brief" />}
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
+  );
 }

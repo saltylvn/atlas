@@ -7,22 +7,27 @@ import { PeopleCompose } from "@/components/client/PeopleCompose";
 import { ContactForm, ContactRowActions } from "@/components/client/ContactForm";
 import { Icon } from "@/components/Icon";
 import { CardHeader, Empty, PageHeader, timeAgo } from "@/components/ui";
+import { PeopleBoard } from "@/components/client/PeopleBoard";
+import { daysSince, inYourLists, overdue } from "@/lib/domain/people";
 
 export const metadata = { title: "People" };
 
 const CIRCLE_COLOR: Record<Circle, string> = {
   team: "var(--c-blue)",
-  family: "var(--c-pink)",
+  family: "var(--c-brown)",
   friends: "var(--c-green)",
-  network: "var(--c-purple)",
+  network: "var(--c-indigo)",
 };
 
 export default async function PeoplePage({ searchParams }: { searchParams: Promise<{ to?: string; via?: string; about?: string }> }) {
   const { to, via, about } = await searchParams;
   const { store, today, now, settings } = await getContext();
-  const [contacts, messages, snippets] = await Promise.all([store.contacts.list(), store.messages.list(), store.snippets.list()]);
+  const [everyone, messages, snippets] = await Promise.all([store.contacts.list(), store.messages.list(), store.snippets.list()]);
+  // Phonebook imports you have not placed are only for finding someone when you fill a place.
+  const contacts = everyone.filter(inYourLists);
+  const imported = everyone.length - contacts.length;
   const due = contactsDue(contacts, today);
-  const byId = new Map(contacts.map((c) => [c.id, c]));
+  const byId = new Map(everyone.map((c) => [c.id, c]));
   const recent = messages
     .filter((m) => m.status === "handed_off")
     .sort((a, b) => (b.handedOffAt ?? "").localeCompare(a.handedOffAt ?? ""))
@@ -41,7 +46,69 @@ export default async function PeoplePage({ searchParams }: { searchParams: Promi
 
   return (
     <div className="space-y-5">
-      <PageHeader title="People" sub="Keep in touch by text: check in, or share a thought or idea. Atlas drafts, you send." />
+      <PageHeader title="People" sub="Your closest people: your spouse, then five groups of four. Tap a name to text them, schedule a text, or invite them to something. Atlas drafts and reminds; you send." />
+
+      <PeopleBoard
+        people={everyone.map((c) => {
+          const since = daysSince(c, today);
+          return { id: c.id, name: c.name, phone: c.phone, email: c.email, category: c.category ?? null, slot: c.slot ?? null, since: since === null ? "never" : since === 0 ? "today" : since === 1 ? "yesterday" : `${since} days ago`, overdue: Boolean(c.category) && overdue(c, today) };
+        })}
+        scheduled={messages
+          .filter((m) => m.status === "draft" && m.remindAt)
+          .sort((a, b) => (a.remindAt ?? "").localeCompare(b.remindAt ?? ""))
+          .map((m) => ({
+            id: m.id,
+            name: byId.get(m.contactId)?.name ?? "Someone",
+            when: new Date(m.remindAt!).toLocaleString("en-US", { timeZone: settings.timezone, weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }),
+            body: m.body,
+            due: Date.parse(m.remindAt!) <= now.getTime(),
+          }))}
+        today={today}
+        timezone={settings.timezone}
+      />
+
+      <section className="card card-pad" aria-label="Add people from your iPhone">
+        <CardHeader title="Add people from your iPhone" icon="plus" hint="A Shortcut opens your phone's own contact picker and sends Atlas only the person you pick. Atlas never reads your address book." />
+        <ol className="list-decimal space-y-1 pl-5 text-sm text-ink-2">
+          <li>In the Shortcuts app, make a new Shortcut named <span className="font-medium text-ink">Add to Atlas</span>.</li>
+          <li>Add <span className="font-medium text-ink">Select Contact</span>.</li>
+          <li>
+            Add <span className="font-medium text-ink">Get Contents of URL</span>: <span className="font-mono text-xs">https://atlas-optim.vercel.app/api/capture</span>, Method POST, Header{" "}
+            <span className="font-mono text-xs">Authorization: Bearer</span> plus the same capture token your Siri Shortcut uses, Request Body JSON with <span className="font-mono text-xs">kind</span> = contact,{" "}
+            <span className="font-mono text-xs">name</span> = the contact&apos;s Name, <span className="font-mono text-xs">phone</span> = Phone Numbers, <span className="font-mono text-xs">email</span> = Email Addresses, and optionally{" "}
+            <span className="font-mono text-xs">category</span> = spouse, family, friends, colleagues, mentors or church.
+          </li>
+          <li>Add <span className="font-medium text-ink">Show Result</span>. Run it, pick someone, and they appear here: placed when you named a category with a free place, otherwise ready to type into any empty place.</li>
+        </ol>
+      </section>
+
+      <section className="card card-pad" aria-label="Import your contact list">
+        <CardHeader
+          title="Import your whole contact list"
+          icon="people"
+          hint={
+            imported
+              ? `${imported} contacts from your phone are ready: type a name in any empty place to find them. They stay out of your lists until you place them.`
+              : "Run once, and any empty place can find anyone in your phone by typing. Names, phones and emails only; they stay out of your lists until you place them."
+          }
+        />
+        <ol className="list-decimal space-y-1 pl-5 text-sm text-ink-2">
+          <li>In the Shortcuts app, make a new Shortcut named <span className="font-medium text-ink">Import contacts to Atlas</span>.</li>
+          <li>
+            Add <span className="font-medium text-ink">Find Contacts</span> (all contacts), then <span className="font-medium text-ink">Repeat with Each</span> item, and inside it a{" "}
+            <span className="font-medium text-ink">Dictionary</span> with <span className="font-mono text-xs">name</span> = Repeat Item&apos;s Name, <span className="font-mono text-xs">phone</span> = Phone Numbers,{" "}
+            <span className="font-mono text-xs">email</span> = Email Addresses.
+          </li>
+          <li>
+            After the repeat, add <span className="font-medium text-ink">Get Contents of URL</span>: the same address, method and Authorization header as Add to Atlas, Request Body JSON with{" "}
+            <span className="font-mono text-xs">kind</span> = contacts and <span className="font-mono text-xs">contacts</span> = Repeat Results (type Array).
+          </li>
+          <li>
+            Add <span className="font-medium text-ink">Show Result</span> and run it. It says how many were added. Running it again later adds only new people and fills in missing numbers; nobody is
+            added twice. Up to 2,000 contacts per run.
+          </li>
+        </ol>
+      </section>
 
       <div className="grid items-start gap-5 lg:grid-cols-[1.25fr_1fr]">
         <PeopleCompose
@@ -85,7 +152,7 @@ export default async function PeoplePage({ searchParams }: { searchParams: Promi
                 <li key={d.contact.id} className="flex items-center justify-between gap-2 py-2.5">
                   <div className="min-w-0">
                     <p className="flex items-center gap-2 truncate text-sm font-semibold">
-                      {d.reason === "birthday" && <Icon name="cake" size={15} className="text-[var(--c-pink)]" />}
+                      {d.reason === "birthday" && <Icon name="cake" size={15} className="text-[var(--c-brown)]" />}
                       {d.contact.name}
                     </p>
                     <p className={`text-xs ${d.reason === "cadence" && d.days > 3 ? "font-semibold text-bad" : "text-ink-3"}`}>

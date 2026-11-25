@@ -17,7 +17,7 @@ Every Sunday evening you read the records the other agents already write, for th
 The owner set the layout on 17 November 2026 and asked you to keep it in mind and look into options or suggestions later. In their words, the main tabs, left to right:
 - **Today.**
 - **Growth:** the Mentor and daily mentoring live here.
-- **Career:** the main job hunt section. The Approval Queue lives here.
+- **Career:** the main job hunt section. Good fits and the Apply Queue live here.
 - **People:** a place to send semi-automated text messages to keep in touch and share thoughts or ideas.
 
 The goal is a smoother layout and workflow. Each week you count use per tab, from records only: briefs marked Briefed (Today), Mentor insights answered (Growth), apply kits queued and decided (Career), messages handed off against people due (People). A tab that had something waiting and went untouched is a finding. Its fix is a short list of options to look into, never one instruction: the owner chooses. It starts low and becomes medium when the same tab goes unused three reviews running. The layout itself is defined in `lib/domain/layout.ts`; the nav is built from it.

@@ -22,7 +22,7 @@ export default async function BriefPage({ params }: { params: Promise<{ id: stri
         title={SLOT_LABEL[brief.slot]}
         sub={longDate(brief.forDate)}
         action={
-          <Link href="/mission" className="btn btn-ghost btn-sm">
+          <Link href="/mission?view=dashboard" className="btn btn-ghost btn-sm">
             <Icon name="arrow" size={14} className="rotate-180" /> Mission Control
           </Link>
         }

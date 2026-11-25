@@ -16,22 +16,31 @@ import {
 } from "@/lib/domain/schedule";
 import type { CalendarEvent, LocalDate, Task } from "@/lib/domain/types";
 import { getCalendar } from "@/lib/integrations/calendar";
+import { googleCalendarEvents } from "@/lib/connections/googleCalendar";
 
 export interface CalendarSource {
   events: CalendarEvent[];
   status: "ok" | "not_configured" | "error";
   /** True when demo mode filled in a fictional calendar. */
   sample: boolean;
+  /** Where the events came from: Google Calendar (with its colors), the iCal address, or demo mode. */
+  via: "google" | "ical" | "demo";
 }
 
 /** The owner's calendar for a date range (interviews are already on it). */
 export async function calendarFor(ctx: Context, from: LocalDate, to: LocalDate): Promise<CalendarSource> {
   const tz = ctx.settings.timezone;
+  // Google Calendar first, when connected: the same events, in Google's colors. Not connected or
+  // unreachable, and the iCal address stands in, so the calendar still shows.
+  if (ctx.mode === "live") {
+    const g = await googleCalendarEvents(from, to, tz).catch(() => ({ status: "error" as const }));
+    if (g.status === "ok") return { events: g.events, status: "ok", sample: false, via: "google" };
+  }
   const cal = await getCalendar(from, to, tz);
   if (ctx.mode === "demo" && cal.status === "not_configured") {
-    return { events: demoCalendar(from, to, tz), status: "ok", sample: true };
+    return { events: demoCalendar(from, to, tz), status: "ok", sample: true, via: "demo" };
   }
-  return { events: cal.events, status: cal.status, sample: false };
+  return { events: cal.events, status: cal.status, sample: false, via: "ical" };
 }
 
 export function nowMinutes(ctx: Pick<Context, "now" | "settings">): number {

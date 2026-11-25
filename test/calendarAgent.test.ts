@@ -32,7 +32,7 @@ const iv = (over: Partial<CalendarInterview> = {}): CalendarInterview => ({
 const run = (over: Partial<CalendarAgentInput> = {}) =>
   calendarAgentReport({ slot: "morning", forDate: MON, aheadUntil: "2026-11-22", timeZone: TZ, events: [], status: "ok", interviews: [], ...over });
 
-describe("Calendar Agent: what to keep top of mind", () => {
+describe("Calendar bot: what to keep top of mind", () => {
   it("tags appointments and interviews by title, and leaves ordinary meetings alone", () => {
     expect(classifyEvent("Dentist cleaning")).toBe("appointment");
     expect(classifyEvent("Dr. Patel follow-up")).toBe("appointment");
@@ -52,7 +52,7 @@ describe("Calendar Agent: what to keep top of mind", () => {
   });
 });
 
-describe("Calendar Agent: interviews", () => {
+describe("Calendar bot: interviews", () => {
   it("matches a job-hunt interview to its calendar event: no duplicate, no false conflict, nothing to approve", () => {
     const r = run({ events: [ev("Acme - round 2 with Dana", "2026-11-18T17:00:00Z", "2026-11-18T18:00:00Z")], interviews: [iv()] });
     const wed = r.section?.ahead.find((d) => d.day === "2026-11-18")?.events ?? [];
@@ -106,7 +106,7 @@ describe("Calendar Agent: interviews", () => {
   });
 });
 
-describe("Calendar Agent: conflicts, window and failures", () => {
+describe("Calendar bot: conflicts, window and failures", () => {
   it("never counts events marked Free as conflicts", () => {
     const busy = ev("Standup", "2026-11-16T16:00:00Z", "2026-11-16T16:30:00Z");
     expect(findConflicts([busy, ev("Focus time", "2026-11-16T16:00:00Z", "2026-11-16T18:00:00Z", { free: true })], TZ)).toEqual([]);

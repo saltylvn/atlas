@@ -26,13 +26,23 @@ export function isPublicPath(path: string): boolean {
   // instead of a browser session. Keep this list short: everything else is gated.
   return (
     path === "/login" ||
+    // The privacy policy and terms: static, linked from Google's consent screen.
+    path === "/privacy" ||
+    path === "/terms" ||
     path === "/setup" ||
     path === "/sw.js" ||
     path.startsWith("/auth/") ||
     path === "/api/health" ||
     path === "/api/keepalive" ||
     path === "/api/capture" ||
-    path.startsWith("/api/cron/")
+    path.startsWith("/api/cron/") ||
+    // Atlas Autofill: each route checks the extension's key (lib/extensionApi.ts).
+    path.startsWith("/api/extension/") ||
+    // Claude's MCP connector: checks its own OAuth token (lib/mcp/auth.ts); its metadata is public.
+    path === "/api/mcp" ||
+    // The public demo connector: fictional data only, off unless ATLAS_MCP_DEMO is set (lib/mcp/showcase.ts).
+    path === "/api/mcp-demo" ||
+    path.startsWith("/.well-known/oauth-protected-resource")
   );
 }
 

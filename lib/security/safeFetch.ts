@@ -22,10 +22,21 @@ export const ALLOWED_HOSTS: ReadonlySet<string> = new Set([
   "remoteok.com",
   "weworkremotely.com",
   "hn.algolia.com",
-  // public job boards
+  // Himalayas: remote jobs, public JSON API (its terms: credit Himalayas, link to the listing, don't pass jobs on)
+  "himalayas.app",
+  // Remotive: remote jobs, public JSON API (its terms: credit Remotive and link to the listing; jobs arrive 24 hours late)
+  "remotive.com",
+  // national benchmarks (read once a week): BLS Public Data API (JOLTS) and FRED (St. Louis Fed)
+  "api.bls.gov",
+  "api.stlouisfed.org",
+  // Adzuna job search API (free key; 4 searches a day; credited as its terms ask)
+  "api.adzuna.com",
+  // public job boards (Recruitee's per-company subdomain is passed per call, after the slug is checked)
   "boards-api.greenhouse.io",
   "api.lever.co",
   "api.ashbyhq.com",
+  "api.smartrecruiters.com",
+  "apply.workable.com",
   // weather
   "api.open-meteo.com",
   // calendar (secret iCal address)
@@ -41,8 +52,16 @@ export const ALLOWED_HOSTS: ReadonlySet<string> = new Set([
   // Google OAuth token exchange and Gmail (read-only)
   "oauth2.googleapis.com",
   "gmail.googleapis.com",
+  // Google Calendar API (read-only: your calendar list and events, for Google's colors), only once you connect it
+  "www.googleapis.com",
   // Google Gemini API (lib/ai/gemini.ts), only when GEMINI_API_KEY is set
   "generativelanguage.googleapis.com",
+  // Firecrawl (lib/integrations/firecrawl.ts): reads the posting of a job you approved, only when FIRECRAWL_API_KEY is set
+  "api.firecrawl.dev",
+  // Figma's rendered exports (a resume frame as a PDF), linked from api.figma.com's image export
+  "figma-alpha-api.s3.us-west-2.amazonaws.com",
+  // Notion's file storage: the resume PDF in a Resumes row, by the short-lived link Notion's API gives
+  "prod-files-secure.s3.us-west-2.amazonaws.com",
 ]);
 
 export class BlockedRequestError extends Error {}
@@ -121,6 +140,8 @@ export interface SafeFetchOptions {
   accept?: string;
   /** Next.js data cache lifetime in seconds. */
   revalidate?: number;
+  /** Next.js cache tags, so a cached copy can be expired on demand (updateTag). */
+  tags?: readonly string[];
   /** Hosts trusted by server configuration (e.g. the CALENDAR_ICS_URL host), never user input. */
   extraHosts?: readonly string[];
   /** PATCH and DELETE are used by one caller: the resume sync's own block in Notion. */
@@ -135,7 +156,12 @@ export interface SafeFetchOptions {
 }
 
 export async function safeFetchText(raw: string, opts: SafeFetchOptions = {}): Promise<string> {
-  const { timeoutMs = 6000, maxBytes = 2_000_000, accept = "*/*", revalidate = 900, extraHosts = [], method = "GET", body, headers = {}, signal, errorDetail = false } = opts;
+  return new TextDecoder().decode(await safeFetchBytes(raw, opts));
+}
+
+/** The same request as safeFetchText, returning the raw bytes (a PDF, an image). */
+export async function safeFetchBytes(raw: string, opts: SafeFetchOptions = {}): Promise<Uint8Array> {
+  const { timeoutMs = 6000, maxBytes = 2_000_000, accept = "*/*", revalidate = 900, tags, extraHosts = [], method = "GET", body, headers = {}, signal, errorDetail = false } = opts;
   // Anything authenticated or state-changing bypasses the shared data cache.
   const private_ = method !== "GET" || Object.keys(headers).length > 0;
   let url = assertAllowed(raw, extraHosts);
@@ -148,7 +174,7 @@ export async function safeFetchText(raw: string, opts: SafeFetchOptions = {}): P
       signal: signal ? AbortSignal.any([AbortSignal.timeout(timeoutMs), signal]) : AbortSignal.timeout(timeoutMs),
       headers: { accept, "user-agent": "AtlasOptim/1.0 (personal dashboard)", ...headers },
       credentials: "omit",
-      ...(private_ ? { cache: "no-store" as const } : { next: { revalidate } }),
+      ...(private_ ? { cache: "no-store" as const } : { next: { revalidate, ...(tags?.length ? { tags: [...tags] } : {}) } }),
     });
     if (res.status >= 300 && res.status < 400) {
       const location = res.headers.get("location");
@@ -170,7 +196,7 @@ export async function safeFetchText(raw: string, opts: SafeFetchOptions = {}): P
     const declared = Number(res.headers.get("content-length") ?? "0");
     if (declared > maxBytes) throw new Error(`${url.hostname} response too large`);
     const reader = res.body?.getReader();
-    if (!reader) return "";
+    if (!reader) return new Uint8Array();
     const chunks: Uint8Array[] = [];
     let size = 0;
     for (;;) {
@@ -183,7 +209,7 @@ export async function safeFetchText(raw: string, opts: SafeFetchOptions = {}): P
       }
       chunks.push(value);
     }
-    return new TextDecoder().decode(Buffer.concat(chunks));
+    return new Uint8Array(Buffer.concat(chunks));
   }
   throw new Error("Too many redirects");
 }

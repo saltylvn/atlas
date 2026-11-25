@@ -2,7 +2,7 @@ import "server-only";
 import { after } from "next/server";
 import { audit } from "@/lib/audit";
 import type { Store } from "@/lib/data/store";
-import { MACHINE_ROUTES, refusalKind, refusedDetail, TOKEN_REFUSED, type MachineRoute, type RefusalTally } from "@/lib/domain/refusedTokens";
+import { TOKEN_ROUTES, refusalKind, refusedDetail, TOKEN_REFUSED, type MachineRoute, type RefusalTally } from "@/lib/domain/refusedTokens";
 import { mode } from "@/lib/env";
 import { ownerServiceStore, serviceReady } from "@/lib/owner";
 
@@ -80,7 +80,7 @@ export function refusalRecorder(deps: RefusalRecorderDeps) {
      */
     note(route: MachineRoute, header: string | null): void {
       try {
-        if (!MACHINE_ROUTES.includes(route) || !deps.ready()) return;
+        if (!TOKEN_ROUTES.includes(route) || !deps.ready()) return;
         const now = deps.now();
         let slot = slots.get(route);
         if (!slot) {

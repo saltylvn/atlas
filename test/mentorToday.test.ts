@@ -40,7 +40,7 @@ describe("insightsForToday", () => {
     expect(insightsForToday(saturday, "2026-11-17")).toHaveLength(0);
   });
 
-  it("shows nothing when the Mentor has nothing open, and ignores a date in the future", () => {
+  it("shows nothing when the Career Mentor has nothing open, and ignores a date in the future", () => {
     expect(insightsForToday([], today)).toEqual([]);
     expect(insightsForToday([insight("future", "2026-11-17")], today)).toEqual([]);
   });

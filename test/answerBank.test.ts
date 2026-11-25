@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { DEMO_RESUME_TEXT } from "@/lib/data/demoResume";
 import { draftAnswers, parseResumeText, roleSummary, summaryFromPassage } from "@/lib/domain/answerDrafts";
-import { ANSWER_BANK, prepareAnswers, questionsFor } from "@/lib/domain/careerPrep";
+import { ANSWER_BANK, kitQuestions, prepareAnswers } from "@/lib/domain/careerPrep";
 import { toChunks, type KnowledgeDoc } from "@/lib/domain/knowledge";
 import { numbersGrounded } from "@/lib/domain/market";
 
@@ -41,15 +41,11 @@ describe("the questions", () => {
     expect(new Set(ids).size).toBe(ids.length);
   });
 
-  it("splits by track: a gig never gets the salary question, a job never gets the hourly rate", () => {
-    const job = questionsFor("full-time").map((q) => q.id);
-    const gig = questionsFor("gig").map((q) => q.id);
-    expect(job).toContain("salary");
-    expect(job).not.toContain("rate");
-    expect(gig).toContain("rate");
-    expect(gig).not.toContain("salary");
-    expect(job).toContain("intro");
-    expect(gig).toContain("intro");
+  it("asks only what a full-time application asks: no hourly rate, weekly hours or proposal", () => {
+    const kit = kitQuestions().map((q) => q.id);
+    expect(kit).toEqual(expect.arrayContaining(["intro", "salary", "whyCompany", "startDate"]));
+    const all = ANSWER_BANK.map((q) => q.id);
+    for (const gone of ["rate", "availability", "proposalOpener"]) expect(all).not.toContain(gone);
   });
 
   it("asks nothing demographic", () => {
@@ -60,7 +56,7 @@ describe("the questions", () => {
 
 describe("drafts from a resume", () => {
   const parsed = parseResumeText(RESUME);
-  const drafts = draftAnswers(parsed, "Sam");
+  const drafts = draftAnswers(parsed);
 
   it("reads the sections, entries and bullets", () => {
     expect(parsed.summary).toMatch(/^Engineer who builds/);
@@ -72,7 +68,7 @@ describe("drafts from a resume", () => {
     expect(parsed.prior[0]!.bullets).toEqual(["Acquired 300+ customer accounts in a single year."]);
   });
 
-  it("drafts the intro, work history, project, AI experience and proposal opener", () => {
+  it("drafts the intro, work history, project and AI experience", () => {
     expect(drafts.intro).toBe(`${parsed.summary} I'm currently a Support Analyst at Acme Health, and built Orbit and Relay.`);
     expect(drafts.workHistory).toBe(
       "Support Analyst, Acme Health, 2025 – Present\n- Turn billing requirements into XML rules that catch bad claims before submission.\n- Configure API and SFTP integrations for enterprise clients.\n\nSales Leadership, D2D & Software Sales, 2015 – 2024\n- Acquired 300+ customer accounts in a single year.",
@@ -81,7 +77,7 @@ describe("drafts from a resume", () => {
     const vowel = draftAnswers(parseResumeText(RESUME.replace("Support Analyst |", "Integration Analyst |")));
     expect(vowel.intro).toContain("I'm currently an Integration Analyst at Acme Health");
     expect(drafts.aiExperience).toMatch(/^Hands-on with AI Agents, Evals, Multi-Agent Orchestration and RAG\./);
-    expect(drafts.proposalOpener).toMatch(/^Hi, I'm Sam\. I can help with \{role\}\. Engineer who builds/);
+    expect(Object.keys(drafts).sort()).toEqual(["aiExperience", "intro", "project", "workHistory"]);
   });
 
   it("reads a job the way the resume sync mirrors it from Figma: title, then employer and dates", () => {
@@ -91,11 +87,11 @@ describe("drafts from a resume", () => {
     expect(p.experience).toEqual(parsed.experience);
     expect(p.prior).toEqual(parsed.prior);
     expect(p.projects).toEqual(parsed.projects);
-    expect(draftAnswers(p, "Sam")).toEqual(drafts);
+    expect(draftAnswers(p)).toEqual(drafts);
   });
 
   it("never drafts what only you can answer", () => {
-    for (const id of ["authorization", "salary", "whyLooking", "yearsExperience", "rate", "links", "whyCompany"]) expect(drafts[id]).toBeUndefined();
+    for (const id of ["authorization", "salary", "whyLooking", "yearsExperience", "links", "whyCompany"]) expect(drafts[id]).toBeUndefined();
   });
 
   it("adds no number that is not in the resume", () => {
@@ -138,9 +134,11 @@ describe("the matching resume's summary in an apply kit", () => {
     expect(ready[1]).toMatchObject({ fromResume: "AI Engineer", isStarter: false });
     // The same text twice is shown once.
     expect(prepareAnswers({ intro: summary!.text }, { company: "Acme", role: "AI Engineer" }, { roleSummary: summary }).filter((a) => a.id.startsWith("intro"))).toHaveLength(1);
-    const gig = prepareAnswers({ salary: "Mine.", rate: "$90/hr" }, { company: "Client", role: "Agent build" }, { type: "gig" });
-    expect(gig.map((a) => a.id)).toContain("rate");
-    expect(gig.map((a) => a.id)).not.toContain("salary");
+    // An answer saved for a question the bank no longer has (an hourly rate) is never offered.
+    const kit = prepareAnswers({ salary: "Mine.", rate: "$90/hr", availability: "Evenings" }, { company: "Acme", role: "AI Engineer" });
+    expect(kit.map((a) => a.id)).toContain("salary");
+    expect(kit.map((a) => a.id)).not.toEqual(expect.arrayContaining(["rate"]));
+    expect(kit.map((a) => a.id)).not.toContain("availability");
   });
 });
 

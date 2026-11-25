@@ -11,7 +11,7 @@ import { tracer } from "./trace";
 
 // The Scout's second job: once a day, read your own GitHub repositories and record what
 // each one is built with and which skills it demonstrates. The Analyst uses that as
-// evidence when it measures how qualified you are for a role; the Mentor reads the
+// evidence when it measures how qualified you are for a role; the Career Mentor reads the
 // Analyst's numbers. Like everything the Scout does, it records and has no opinion.
 //
 // Read-only. For each repository: its description, topics, languages, the start of the

@@ -138,6 +138,7 @@ export function freeSlots(input: FreeSlotsInput): Interval[] {
   const start = input.nowMin == null ? work.start : Math.max(work.start, roundUp5(input.nowMin));
   if (start >= work.end) return [];
   const busy = events
+    .filter((e) => !e.declined)
     .map((e) => eventInterval(e, day, timeZone))
     .filter((i): i is Interval => i !== null)
     .map((i) => ({ start: i.start - work.bufferMin, end: i.end + work.bufferMin }));
@@ -147,6 +148,7 @@ export function freeSlots(input: FreeSlotsInput): Interval[] {
 /** Minutes of meetings inside the work window (all-day events excluded). */
 export function meetingMinutes(events: CalendarEvent[], day: LocalDate, timeZone: string, work: WorkHours): number {
   const inWindow = events
+    .filter((e) => !e.declined)
     .map((e) => eventInterval(e, day, timeZone))
     .filter((i): i is Interval => i !== null)
     .map((i) => ({ start: Math.max(i.start, work.start), end: Math.min(i.end, work.end) }));

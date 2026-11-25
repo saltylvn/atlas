@@ -38,5 +38,19 @@ export function modelWait(capMs: number, deadline: number | undefined, now: numb
   return ms >= MIN_MODEL_WAIT_MS ? ms : 0;
 }
 
+/** Added to the per-minute limit's wait, so the next call lands after the minute has turned. */
+export const PACE_SLACK_MS = 500;
+
+/**
+ * How long a run waits for the per-minute AI limit to allow calls again, or null to not wait:
+ * only a scheduled (patient) run with a deadline waits, and only when, after the wait, there is
+ * still `reserveMs` (the call and what follows it) plus a model call's minimum before the deadline.
+ */
+export function paceWait(retryAfterMs: number, patient: boolean, deadline: number | undefined, now: number, reserveMs: number): number | null {
+  if (!patient || deadline === undefined) return null;
+  const ms = Math.max(0, retryAfterMs) + PACE_SLACK_MS;
+  return deadline - now - ms - reserveMs >= MIN_MODEL_WAIT_MS ? ms : null;
+}
+
 /** What the trace says when the model was skipped for time. */
 export const NO_TIME_FOR_MODEL = "Too little time left in this run to wait for the model.";

@@ -352,21 +352,20 @@ describe("the sync's reach", () => {
     expect(src).toContain("api.figma.com");
   });
 
-  it("writes to Notion in two named places only: its own block, and an approved role order", () => {
+  it("writes to Notion in one named place only: its own block on each resume page", () => {
     const src = read("lib/integrations/notion.ts");
     const fn = (name: string) => {
       const at = src.indexOf(`export async function ${name}`);
       return src.slice(at, src.indexOf("\n}\n", at));
     };
-    // PATCH: appending the mirror block, and setting a row's Priority. DELETE: the mirror's older copy.
-    expect(src.match(/, "PATCH"\)/g)).toHaveLength(2);
+    // PATCH: appending the mirror block. DELETE: the mirror's older copy. Atlas owns your role
+    // order, so no row's Priority is ever written, and no row is ever created.
+    expect(src.match(/, "PATCH"\)/g)).toHaveLength(1);
     expect(src.match(/, "DELETE"\)/g)).toHaveLength(1);
     expect(fn("writePageMirror")).toContain('"PATCH"');
     expect(fn("writePageMirror")).toContain('"DELETE"');
-    expect(fn("writeRolePriority")).toContain('"PATCH"');
-    // A row is created in one place, and nothing ever deletes a row or a page.
-    expect(src.match(/call\("\/pages",/g)).toHaveLength(1);
-    expect(fn("createRoleRow")).toContain('call("/pages",');
+    expect(src).not.toMatch(/call\("\/pages",/);
+    expect(src).not.toMatch(/writeRolePriority|createRoleRow/);
     expect(src).not.toMatch(/\/pages\/[^`"]*`,\s*undefined,\s*"DELETE"/);
     expect(src).not.toMatch(/in_trash|archived:\s*true/);
   });

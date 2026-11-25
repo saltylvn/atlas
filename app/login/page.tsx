@@ -31,6 +31,15 @@ export default async function LoginPage({ searchParams }: { searchParams: Promis
           <button className="btn btn-primary w-full">Continue with Google</button>
         </form>
         <p className="mt-4 text-xs text-ink-3">Owner only. A one-time code from your authenticator app is required after sign-in.</p>
+        <p className="mt-3 text-xs">
+          <a href="/privacy" className="text-ink-3 underline">
+            Privacy policy
+          </a>
+          <span className="text-ink-3"> · </span>
+          <a href="/terms" className="text-ink-3 underline">
+            Terms
+          </a>
+        </p>
       </div>
     </main>
   );

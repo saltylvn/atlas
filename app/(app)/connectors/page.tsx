@@ -2,11 +2,14 @@ import type { ReactNode } from "react";
 import { aiConfigured, aiMissing, aiName } from "@/lib/ai/model";
 import { gmailMissing, googleMissing } from "@/lib/connections/google";
 import { getContext } from "@/lib/context";
+import { localDate } from "@/lib/domain/dates";
+import { READ_BUDGET } from "@/lib/domain/postingFacts";
 import { env } from "@/lib/env";
+import { firecrawlConfigured } from "@/lib/integrations/firecrawl";
 import { FEEDS } from "@/lib/integrations/news";
 import { pushConfigured, vapidPublicKey } from "@/lib/push";
 import Link from "next/link";
-import { DisconnectGmail, GmailAppPasswordForm, PushPanel, SyncNotionButton, TestModelButton } from "@/components/client/ConnectorsPanel";
+import { DisconnectCalendar, DisconnectGmail, GmailAppPasswordForm, PushPanel, SyncNotionButton, TestModelButton } from "@/components/client/ConnectorsPanel";
 import { Icon, type IconName } from "@/components/Icon";
 import { PageHeader, Pill, timeAgo } from "@/components/ui";
 
@@ -15,9 +18,19 @@ export const metadata = { title: "Connectors" };
 type Status = "connected" | "ready" | "setup" | "error";
 const STATUS: Record<Status, { label: string; color: string }> = {
   connected: { label: "Connected", color: "var(--c-green)" },
-  ready: { label: "Ready to connect", color: "var(--c-blue)" },
+  ready: { label: "Ready to connect", color: "var(--c-indigo)" },
   setup: { label: "Needs setup", color: "var(--c-grey)" },
-  error: { label: "Attention", color: "var(--c-orange)" },
+  error: { label: "Attention", color: "var(--c-warn)" },
+};
+
+const CALENDAR_NOTES: Record<string, string> = {
+  connected: "Google Calendar is connected. Today's calendar now shows your events in Google's colors.",
+  declined: "Google sign-in was cancelled. Nothing was connected.",
+  scope: "Calendar access was not granted. Tick both calendar boxes on Google's consent screen.",
+  failed: "Connecting Google Calendar failed. Try again.",
+  not_configured: "Google Calendar needs the same server settings as Gmail sign-in (listed on the card).",
+  rate_limited: "Too many attempts. Wait a few minutes.",
+  demo: "Connectors are available in live mode. Demo mode uses sample data.",
 };
 
 const GOOGLE_NOTES: Record<string, string> = {
@@ -32,7 +45,7 @@ const GOOGLE_NOTES: Record<string, string> = {
 
 function Card({ icon, title, status, what, children }: { icon: IconName; title: string; status: Status; what: string; children?: ReactNode }) {
   return (
-    <section className="card card-pad flex flex-col gap-3">
+    <section className="card card-connector card-pad flex flex-col gap-3">
       <div className="flex items-start justify-between gap-3">
         <h2 className="h-display flex items-center gap-2 font-semibold">
           <Icon name={icon} size={17} className="text-brand" /> {title}
@@ -58,8 +71,8 @@ function Missing({ names }: { names: string[] }) {
   );
 }
 
-export default async function ConnectorsPage({ searchParams }: { searchParams: Promise<{ google?: string }> }) {
-  const { google: googleNote } = await searchParams;
+export default async function ConnectorsPage({ searchParams }: { searchParams: Promise<{ google?: string; calendar?: string }> }) {
+  const { google: googleNote, calendar: calendarNote } = await searchParams;
   const { store, mode, now, settings } = await getContext();
   const e = env();
   const notion = settings.notion;
@@ -67,21 +80,67 @@ export default async function ConnectorsPage({ searchParams }: { searchParams: P
   const [connections, devices, watches] = await Promise.all([store.connections.list(), store.push.list(), store.watches.list()]);
   // An app-password connection wins over OAuth when both exist (it never expires).
   const gmail = connections.find((c) => c.provider === "gmail_imap") ?? connections.find((c) => c.provider === "google");
+  const gcal = connections.find((c) => c.provider === "google_calendar");
   const missing = gmailMissing();
   const oauthReady = googleMissing().length === 0;
   const site = e.ATLAS_SITE_URL ?? "https://<your-site>";
+  // Pages read through Firecrawl this month; a count from an earlier month no longer applies.
+  const pagesRead = settings.firecrawlUsage?.month === localDate(now, settings.timezone).slice(0, 7) ? settings.firecrawlUsage.pages : 0;
 
   return (
     <div className="space-y-5">
       <PageHeader title="Connectors" sub="Everything Atlas reads from, and how it reaches you. Read-only unless it says otherwise." />
       {googleNote && GOOGLE_NOTES[googleNote] && <p className="card px-4 py-3 text-sm">{GOOGLE_NOTES[googleNote]}</p>}
+      {calendarNote && CALENDAR_NOTES[calendarNote] && <p className="card px-4 py-3 text-sm">{CALENDAR_NOTES[calendarNote]}</p>}
 
       <div className="grid gap-5 md:grid-cols-2">
+        <Card
+          icon="plan"
+          title="Google Calendar"
+          status={gcal ? (gcal.status === "error" ? "error" : "connected") : mode === "live" && oauthReady ? "ready" : "setup"}
+          what="Read-only. Your calendar list (for each calendar's color) and the events on the calendars you show in Google, read live and kept in memory for five minutes, never stored. Today's calendar draws them in Google's colors. Atlas never creates, edits or deletes an event. Not connected, and your iCal address is used instead."
+        >
+          {gcal ? (
+            <>
+              <p className="text-sm">
+                <span className="font-medium">{gcal.accountEmail}</span>
+                <span className="text-ink-3"> · {gcal.lastSyncAt ? `read ${timeAgo(gcal.lastSyncAt, now)}` : "not read yet"}</span>
+              </p>
+              {gcal.status === "error" && <p className="text-sm text-bad">{gcal.lastError}</p>}
+              <div className="flex flex-wrap gap-2">
+                {gcal.status === "error" && (
+                  <a href="/api/connect/google?for=calendar" className="btn btn-primary btn-sm">
+                    Reconnect
+                  </a>
+                )}
+                <DisconnectCalendar />
+              </div>
+            </>
+          ) : mode === "demo" ? (
+            <p className="text-xs text-ink-3">Demo mode shows sample events in Google&apos;s colors. Connect your real calendar in live mode.</p>
+          ) : !oauthReady ? (
+            <Missing names={googleMissing()} />
+          ) : (
+            <>
+              <ol className="list-decimal space-y-1 pl-5 text-sm text-ink-2">
+                <li>In Google Cloud Console, turn on the <b>Google Calendar API</b> for the project Atlas signs in with.</li>
+                <li>
+                  On its OAuth consent screen, <b>publish the app</b> (In production). Unverified is fine for just you; in Testing, Google signs you out every 7 days.
+                </li>
+                <li>Press Connect and tick both calendar boxes. Google will warn the app is unverified: continue, it is yours.</li>
+              </ol>
+              <a href="/api/connect/google?for=calendar" className="btn btn-primary btn-sm self-start">
+                Connect Google Calendar
+              </a>
+            </>
+          )}
+        </Card>
+
         <Card
           icon="mail"
           title="Gmail"
           status={gmail ? (gmail.status === "error" ? "error" : "connected") : mode === "live" && missing.length === 0 ? "ready" : "setup"}
-          what="Read-only. Sender, subject and labels from the last three days, sorted into reply, FYI and noise. Only job emails, and emails from companies you applied to (not their newsletters, promotions, bills or receipts), have their text read, by rules, for a rejection, an interview invite or the role; the one sentence that decided it is kept, never the email. Nothing is marked read, and nothing is sent."
+          what="Read-only. Sender, subject and labels from the last three days, sorted into reply, FYI and noise. Only job emails, and emails from companies you applied to (not their newsletters, promotions, bills or receipts), have their text read, by rules, for the kind of answer it is or the role; the one sentence that decided it is kept, never the email. No email text goes to an AI model unless you turn that on in Settings (it is off). Nothing is marked read, and nothing is sent."
         >
           {gmail ? (
             <>
@@ -187,7 +246,7 @@ export default async function ConnectorsPage({ searchParams }: { searchParams: P
           icon="copy"
           title="Notion"
           status={!notionReady ? "setup" : !notion ? "ready" : notion.ok ? "connected" : "error"}
-          what="Atlas reads the Resumes database in Atlas HQ: the order of your target roles and each role's resume. Reorder roles or add a resume in Notion and Atlas follows. It only sees pages you share with it. It writes two things, and only if you allow it: the resume sync's own block on each resume page, and the Priority numbers of your role rows when you approve the Mentor's proposed order (Target roles has the details)."
+          what="Atlas reads the Resumes database in Atlas HQ: each role's resume. Your roles and their order are set in Atlas, on Target Roles. It only sees pages you share with it. It writes one thing, and only if you allow it: the resume sync's own block on each resume page."
         >
           {notionReady ? (
             <>
@@ -207,7 +266,7 @@ export default async function ConnectorsPage({ searchParams }: { searchParams: P
               <p className="text-xs text-ink-3">
                 Also syncs before each brief and when you open{" "}
                 <Link href="/roles" className="text-brand">
-                  Target roles
+                  Roles and resumes
                 </Link>
                 . A resume is the row&apos;s Share link, or its attached file.
               </p>
@@ -244,8 +303,22 @@ export default async function ConnectorsPage({ searchParams }: { searchParams: P
           {aiConfigured() && <TestModelButton />}
         </Card>
 
+        <Card
+          icon="external"
+          title="Firecrawl (reads postings)"
+          status={firecrawlConfigured() ? "connected" : "setup"}
+          what="Reads the full posting of each job you give a 👍, so its apply kit shows the experience, skills and pay it asks for. Read-only. Never LinkedIn, Indeed or Glassdoor. Free plan: 1,000 pages a month, and Atlas stops at 900."
+        >
+          <Missing names={firecrawlConfigured() ? [] : ["FIRECRAWL_API_KEY"]} />
+          {firecrawlConfigured() && (
+            <p className="text-xs text-ink-3">
+              {pagesRead} of {READ_BUDGET.monthly} pages read this month.
+            </p>
+          )}
+        </Card>
+
         <Card icon="news" title="News feeds" status="connected" what={`${FEEDS.length} allowlisted sources across politics, tech and AI. No account, no tracking.`} />
-        <Card icon="jobs" title="Job boards" status="connected" what={`${watches.length} company boards watched on Greenhouse, Lever and Ashby. Public APIs, no account.`} />
+        <Card icon="jobs" title="Job boards" status="connected" what={`${watches.length} company boards watched on Greenhouse, Lever, Ashby, SmartRecruiters, Workable, Recruitee, BambooHR and ApplicantPro. Public APIs and feeds, no account.`} />
         <Card icon="today" title="Weather" status="connected" what="Open-Meteo forecast for your city. No account, no key." />
       </div>
     </div>

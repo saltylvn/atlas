@@ -13,7 +13,7 @@ export const metadata = { title: "Evals" };
 export const maxDuration = 60;
 
 const GOOD = "var(--c-green)";
-const WARN = "var(--c-orange)";
+const WARN = "var(--c-warn)";
 const BAD = "var(--c-red)";
 
 /**
@@ -37,7 +37,7 @@ export default async function EvalsPage() {
         title="Evals"
         sub={`How Atlas knows its agents are working: ${report.total} labeled cases in ${report.suites.length} suites across ${new Set(report.suites.map((s) => s.agent)).size} agents, scored against the live rules just now in ${report.tookMs} ms. No model call, $0.`}
         action={
-          <Link href="/mission" className="btn btn-ghost btn-sm">
+          <Link href="/mission?view=dashboard" className="btn btn-ghost btn-sm">
             Mission Control
           </Link>
         }
@@ -54,11 +54,11 @@ export default async function EvalsPage() {
               {report.passed} of {report.total} cases pass · {gaps === 0 ? "no misses" : `${gaps} known gap${gaps === 1 ? "" : "s"}`}
             </p>
           </div>
-          <Pill color={report.ok ? GOOD : BAD}>{report.ok ? "Every agent meets its bar" : "An agent is below its bar"}</Pill>
+          <Pill color={report.ok ? GOOD : BAD}>{report.ok ? "Every bot meets its bar" : "A bot is below its bar"}</Pill>
         </div>
         <ul className="mt-4 grid gap-x-6 gap-y-1 text-sm text-ink-2 sm:grid-cols-3">
           <li>
-            <span className="font-medium text-ink">Every pull request.</span> CI runs these suites; a score below an agent&apos;s bar fails the build.
+            <span className="font-medium text-ink">Every pull request.</span> CI runs these suites; a score below a bot&apos;s bar fails the build.
           </li>
           <li>
             <span className="font-medium text-ink">Every morning.</span> The scores are logged before the brief, so a drop shows in Errors &amp; alerts.
@@ -157,7 +157,7 @@ export default async function EvalsPage() {
       </section>
 
       <p className="text-xs text-ink-3">
-        The cases live in <code>lib/evals/suites</code>, one file per agent. Run them yourself with <code>npm run evals</code>. Each run of an agent is also traced step by step in{" "}
+        The cases live in <code>lib/evals/suites</code>, one file per bot. Run them yourself with <code>npm run evals</code>. Each run of an agent is also traced step by step in{" "}
         <Link href="/mission" className="text-brand">
           Mission Control
         </Link>

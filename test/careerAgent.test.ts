@@ -2,24 +2,53 @@ import { describe, expect, it } from "vitest";
 import { applicationsCsv, approvalFor, companyFromMail, roleFromSubject, trackFromEmail, type JobMail } from "@/lib/domain/applications";
 import { careerSnapshot, parseNext, roundOf } from "@/lib/domain/careerSnapshot";
 import { jobKind } from "@/lib/domain/emailAgent";
-import { candidates, displayTitle, jobType, parsePay, payFits, payLabel, pick, roleFor, savedSearches, tasteFrom, titleLevel, whereFits, type RawJob } from "@/lib/domain/careerAgent";
-import { rolesFrom, TARGET_ROLES } from "@/lib/domain/targetRoles";
+import { candidates, displayTitle, isFullTime, isSenior, notFullTimeCount, parsePay, payFits, payLabel, pick, roleFor, savedSearches, seniorCount, tasteFrom, titleLevel, whereFits, wrongLevel, type RawJob } from "@/lib/domain/careerAgent";
+import { BUILT_IN_ROLES, MAIN_ROLES, optionNames, canonicalRole, candidatesBeyond, MAX_ROLES, moveRole, roleNames, rolesFrom, TARGET_ROLES } from "@/lib/domain/targetRoles";
 import type { Application, CalendarEvent } from "@/lib/domain/types";
 import { fixMojibake, parseHnThread, parseRemoteOk, parseWwr, REMOTE_BOARDS } from "@/lib/integrations/jobFeeds";
 
 const roles = [...TARGET_ROLES];
 const now = new Date("2026-11-16T15:00:00Z");
 const hoursAgo = (h: number) => new Date(now.getTime() - h * 3_600_000).toISOString();
-const prefs = { roles, minSalary: 120_000, minRate: 50 };
+const prefs = { roles, minSalary: 120_000 };
 let seq = 0;
 const job = (title: string, over: Partial<RawJob> = {}): RawJob => {
   seq++;
   return { key: `k${seq}`, source: "Remote OK", title, company: `Co${seq}`, url: `https://x.test/${seq}`, location: "", text: "", postedAt: hoursAgo(5), ...over };
 };
 
-describe("Career Agent: your seven roles", () => {
-  it("has the seven roles in your order (set in Notion)", () => {
-    expect(TARGET_ROLES.map((r) => r.name)).toEqual(["Solutions Engineer", "Software Engineer", "AI Engineer", "AI + Automation Engineer", "AI Workflow Engineer", "Forward Deployed Engineer", "GTM Engineer"]);
+describe("Applications bot: your five roles", () => {
+  it("has the five roles in your order (set in Atlas)", () => {
+    expect(TARGET_ROLES.map((r) => r.name)).toEqual(["Solutions Engineer", "AI Engineer", "Forward Deployed Engineer", "Software Engineer", "AI Automation Engineer"]);
+    expect(TARGET_ROLES).toHaveLength(5);
+    expect(MAX_ROLES).toBe(7);
+  });
+
+  it("folds every other title into one of the five", () => {
+    const r = (t: string) => roleFor(t, roles)?.name ?? null;
+    expect(r("Implementation Engineer")).toBe("Solutions Engineer");
+    expect(r("Customer Success Engineer")).toBe("Solutions Engineer");
+    expect(r("Generative AI Developer")).toBe("AI Engineer");
+    expect(r("AI Consultant")).toBe("AI Engineer");
+    expect(r("Customer Engineer")).toBe("Forward Deployed Engineer");
+    expect(r("Field Engineer, AI")).toBe("Forward Deployed Engineer");
+    expect(r("Embedded Software Engineer")).toBe("Software Engineer");
+    expect(r("Engineer - Embedded")).toBe("Software Engineer");
+    expect(r("Developer Advocate")).toBe("Software Engineer");
+    expect(r("GTM Engineer")).toBe("AI Automation Engineer");
+    expect(r("AI Workflow Engineer")).toBe("AI Automation Engineer");
+    expect(r("n8n Developer")).toBe("AI Automation Engineer");
+  });
+
+  it("maps old role names onto today's, and caps your list at seven", () => {
+    expect(canonicalRole("AI + Automation Engineer")).toBe("AI Automation Engineer");
+    expect(canonicalRole("AI Workflow Engineer (uses AI Engineer)")).toBe("AI Workflow Engineer");
+    expect(canonicalRole("gtm engineer")).toBe("AI Automation Engineer");
+    expect(canonicalRole("Robotics Engineer")).toBe("Robotics Engineer");
+    expect(roleNames(["GTM Engineer", "AI + Automation Engineer", "Solutions Engineer"])).toEqual(["AI Automation Engineer", "Solutions Engineer"]);
+    expect(roleNames(["A Role", "B Role", "C Role", "D Role", "E Role", "F Role", "G Role", "H Role"])).toHaveLength(7);
+    expect(moveRole(["A", "B", "C"], "C", -1)).toEqual(["A", "C", "B"]);
+    expect(moveRole(["A", "B"], "A", -1)).toEqual(["A", "B"]);
   });
 
   it("counts Integration Engineer as Solutions Engineer, and leaves AI Integration Engineer with AI Engineer", () => {
@@ -35,8 +64,8 @@ describe("Career Agent: your seven roles", () => {
   it("maps titles to roles, specific roles before the generic Software Engineer", () => {
     const r = (t: string) => roleFor(t, roles)?.name ?? null;
     expect(r("Applied AI Engineer")).toBe("AI Engineer");
-    expect(r("AI Automation Engineer")).toBe("AI + Automation Engineer");
-    expect(r("Workflow Automation Engineer")).toBe("AI Workflow Engineer");
+    expect(r("AI Automation Engineer")).toBe("AI Automation Engineer");
+    expect(r("Workflow Automation Engineer")).toBe("AI Automation Engineer");
     expect(r("Forward-Deployed Product Engineer")).toBe("Forward Deployed Engineer");
     expect(r("Forward Deployed Software Engineer")).toBe("Forward Deployed Engineer");
     expect(r("Senior Solutions Architect")).toBe("Solutions Engineer");
@@ -54,11 +83,86 @@ describe("Career Agent: your seven roles", () => {
     expect(rolesFrom(["Robotics Engineer"])[0]).toEqual({ name: "Robotics Engineer", titles: ["robotics engineer"] });
     // A candidate role you add to your list brings its own title phrases.
     expect(rolesFrom(["Data Engineer"])[0]!.titles).toContain("analytics engineer");
-    expect(rolesFrom([])).toHaveLength(7);
+    expect(rolesFrom([])).toHaveLength(5);
   });
+
+  it("offers only your seven roles on Target Roles, in your order", () => {
+    expect(BUILT_IN_ROLES.map((r) => r.name)).toEqual(["Software Engineer 1", "AI Automation Engineer", "AI Workflow Engineer", "Agentic Software Engineer", "AI Solutions Engineer", "AI Forward Deployed Engineer", "AI Project Manager"]);
+    expect(canonicalRole("AI Automation Engineering")).toBe("AI Automation Engineer");
+    expect(canonicalRole("AI Forward Deployed Engineering")).toBe("AI Forward Deployed Engineer");
+    expect(canonicalRole("Data Engineering")).toBe("Data Engineer");
+    expect(MAIN_ROLES).toEqual(BUILT_IN_ROLES.map((r) => r.name));
+    for (const n of MAIN_ROLES) expect(canonicalRole(n.toLowerCase())).toBe(n);
+    expect(canonicalRole("Agentic Engineer")).toBe("Agentic Software Engineer");
+    expect(roleNames(MAIN_ROLES)).toEqual([...MAIN_ROLES]);
+    // Options are not candidates: the Scout watches them only when they are on your list.
+    expect(candidatesBeyond([...TARGET_ROLES]).map((r) => r.name)).not.toContain("Agentic Software Engineer");
+  });
+
+  it("saves only the seven, mapping an older role onto the one it folded into", () => {
+    expect(optionNames(["Solutions Engineer", "AI Engineer", "Forward Deployed Engineer", "Software Engineer", "AI Automation Engineer"])).toEqual(["AI Solutions Engineer", "Software Engineer 1", "AI Forward Deployed Engineer", "AI Automation Engineer"]);
+    expect(optionNames(["Data Engineer", "Robotics Engineer"])).toEqual([]);
+    expect(optionNames(["agentic engineer", "AI Workflow Engineer", "AI Workflow Engineer"])).toEqual(["Agentic Software Engineer", "AI Workflow Engineer"]);
+  });
+
+  it("folds every title you hunt for into one of your seven", () => {
+    const mine = rolesFrom(MAIN_ROLES);
+    const r = (t: string) => roleFor(t, mine)?.name ?? null;
+    expect(r("Business Automation Engineer")).toBe("AI Automation Engineer");
+    expect(r("AI Integration Developer")).toBe("AI Automation Engineer");
+    expect(r("GTM Engineer")).toBe("AI Automation Engineer");
+    expect(r("AI Workflow Engineer")).toBe("AI Workflow Engineer");
+    expect(r("Workflow Automation Engineer")).toBe("AI Workflow Engineer");
+    expect(r("Agent Engineer")).toBe("Agentic Software Engineer");
+    expect(r("Agentic Software Engineer")).toBe("Agentic Software Engineer");
+    expect(r("Applied AI Engineer")).toBe("Software Engineer 1");
+    expect(r("LLM Engineer")).toBe("Software Engineer 1");
+    expect(r("Developer, AI Solutions")).toBe("AI Solutions Engineer");
+    expect(r("Integration Engineer")).toBe("AI Solutions Engineer");
+    expect(r("Forward Deployed Engineer")).toBe("AI Forward Deployed Engineer");
+    expect(r("Customer Engineer")).toBe("AI Forward Deployed Engineer");
+    expect(r("Implementation Engineer")).toBe("AI Solutions Engineer");
+  });
+
+  it("Software Engineer 1: any Software Engineer title, except workflow, automation and solutions work (23 Nov 2026)", () => {
+    const mine = rolesFrom(MAIN_ROLES);
+    const r = (t: string) => roleFor(t, mine)?.name ?? null;
+    expect(r("Software Engineer")).toBe("Software Engineer 1");
+    expect(r("Software Engineer I")).toBe("Software Engineer 1");
+    expect(r("Software Engineer II, Payments")).toBe("Software Engineer 1");
+    expect(r("Backend Software Engineer")).toBe("Software Engineer 1");
+    expect(r("AI Software Engineer")).toBe("Software Engineer 1");
+    // Other roles' own titles still win.
+    expect(r("Agentic Software Engineer")).toBe("Agentic Software Engineer");
+    expect(r("Forward Deployed Software Engineer")).toBe("AI Forward Deployed Engineer");
+    // Excluded words: never this role.
+    expect(r("Workflow Software Engineer")).not.toBe("Software Engineer 1");
+    expect(r("Software Engineer, Automation")).not.toBe("Software Engineer 1");
+    expect(r("Solutions Software Engineer")).not.toBe("Software Engineer 1");
+    // Staff and lead titles stay out, as for every role (a senior one is handled by the level rule).
+    expect(r("Staff Software Engineer")).toBeNull();
+  });
+
+  it("a list saved with the old name, and the renamed Notion row, read as Software Engineer 1", () => {
+    expect(rolesFrom(["AI Software Engineer"]).map((x) => x.name)).toEqual(["Software Engineer 1"]);
+    expect(rolesFrom(["AI Software Engineering"]).map((x) => x.name)).toEqual(["Software Engineer 1"]);
+    expect(optionNames(["AI Software Engineer"])).toEqual(["Software Engineer 1"]);
+  });
+
+  it("keeps AI project and program manager titles, and still skips people managers", () => {
+    const mine = rolesFrom(MAIN_ROLES);
+    const r = (t: string) => roleFor(t, mine)?.name ?? null;
+    expect(r("AI Project Manager")).toBe("AI Project Manager");
+    expect(r("AI Program Manager")).toBe("AI Project Manager");
+    expect(wrongLevel("AI Project Manager")).toBe(false);
+    expect(wrongLevel("Senior AI Project Manager")).toBe(true);
+    expect(wrongLevel("Engineering Manager")).toBe(true);
+    expect(r("Project Manager Lead, AI")).toBeNull();
+  });
+
 });
 
-describe("Career Agent: location, pay and type", () => {
+describe("Applications bot: location, pay and type", () => {
   it("keeps remote roles open to the U.S. and Salt Lake County roles", () => {
     expect(whereFits("Remote (US)", false)).toBe("remote");
     expect(whereFits("Hybrid, Salt Lake City, UT", false)).toBe("salt-lake");
@@ -83,12 +187,13 @@ describe("Career Agent: location, pay and type", () => {
     expect(parsePay("", { min: 140_000, max: 180_000 })).toMatchObject({ text: "$140k–$180k" });
   });
 
-  it("rules out pay posted below your floors, and keeps listings with no pay", () => {
-    expect(payFits(parsePay("$80k-$95k"), "full-time", prefs)).toBe(false);
-    expect(payFits(parsePay("$90k-$120k"), "full-time", prefs)).toBe(true);
-    expect(payFits(parsePay("$30/hr"), "gig", prefs)).toBe(false);
-    expect(payFits(parsePay("$50/hr"), "gig", prefs)).toBe(true);
-    expect(payFits(null, "full-time", prefs)).toBe(true);
+  it("rules out pay posted below your floor, and keeps listings with no pay", () => {
+    expect(payFits(parsePay("$80k-$95k"), prefs)).toBe(false);
+    expect(payFits(parsePay("$90k-$120k"), prefs)).toBe(true);
+    // Pay posted by the hour is compared as a full-time year: $120k is about $57.69 an hour.
+    expect(payFits(parsePay("$50/hr"), prefs)).toBe(false);
+    expect(payFits(parsePay("$60/hr"), prefs)).toBe(true);
+    expect(payFits(null, prefs)).toBe(true);
   });
 
   it("tells base pay from a figure that includes variable pay", () => {
@@ -122,37 +227,55 @@ describe("Career Agent: location, pay and type", () => {
   });
 
   it("checks your floor against the base, not the OTE", () => {
-    expect(payFits(parsePay("OTE $140k ($95k base)"), "full-time", prefs)).toBe(false);
-    expect(payFits(parsePay("OTE $160k ($125k base)"), "full-time", prefs)).toBe(true);
+    expect(payFits(parsePay("OTE $140k ($95k base)"), prefs)).toBe(false);
+    expect(payFits(parsePay("OTE $160k ($125k base)"), prefs)).toBe(true);
     // With no base given, a figure that includes variable pay cannot rule a posting out unless even it is under the floor.
-    expect(payFits(parsePay("$140k - $160k OTE"), "full-time", prefs)).toBe(true);
-    expect(payFits(parsePay("$90k - $110k OTE"), "full-time", prefs)).toBe(false);
+    expect(payFits(parsePay("$140k - $160k OTE"), prefs)).toBe(true);
+    expect(payFits(parsePay("$90k - $110k OTE"), prefs)).toBe(false);
   });
 
   it("reads the level in a title", () => {
-    for (const t of ["Solutions Engineer II", "Software Engineer I", "Software Engineer 2", "Integration Engineer (II)", "Solutions Architect I", "Engineer, Level 2", "Solutions Engineer L2"]) expect(titleLevel(t)).toBe("early");
-    for (const t of ["Associate Solutions Engineer", "Integration Specialist", "Solutions Engineering Specialist II"]) expect(titleLevel(t)).toBe("low");
-    for (const t of ["Solutions Engineer", "Software Engineer III", "Senior Solutions Engineer", "AI Engineer", "Engineer 2025 cohort"]) expect(titleLevel(t)).toBeNull();
+    for (const t of ["Software Engineer I", "Software Engineer 1", "Solutions Architect I", "Engineer, Level 1", "Software Engineer L1", "New Grad Software Engineer"]) expect(titleLevel(t)).toBe("early");
+    // Junior and associate are the aim (23 Nov 2026): level II is mid, neither up nor down.
+    for (const t of ["Solutions Engineer II", "Software Engineer 2", "Integration Engineer (II)", "Engineer, Level 2", "Solutions Engineer L2"]) expect(titleLevel(t)).toBe("mid");
+    // Junior and Associate are the level you are looking for.
+    for (const t of ["Associate Solutions Engineer", "Junior Software Engineer", "Jr. Integration Engineer", "Entry-Level AI Engineer", "Early Career Software Engineer"]) expect(titleLevel(t)).toBe("early");
+    for (const t of ["Integration Specialist", "Solutions Engineering Specialist II"]) expect(titleLevel(t)).toBe("low");
+    for (const t of ["Software Engineer III", "Solutions Engineer IV", "Engineer, Level 3"]) expect(titleLevel(t)).toBe("upper");
+    for (const t of ["Solutions Engineer", "Senior Solutions Engineer", "AI Engineer", "Engineer 2025 cohort"]) expect(titleLevel(t)).toBeNull();
+  });
+
+  it("knows a senior title, which is one of your roles but not a match", () => {
+    for (const t of ["Senior Solutions Engineer", "Sr. Software Engineer", "Sr Integration Engineer", "Software Engineer, Senior"]) expect(isSenior(t)).toBe(true);
+    for (const t of ["Solutions Engineer", "Solutions Engineer II", "Associate Solutions Engineer", "Seniority Systems Engineer"]) expect(isSenior(t)).toBe(false);
+    // Still one of your roles: the Scout records it and an application to it is tracked.
+    expect(roleFor("Senior Solutions Engineer", roles)?.name).toBe("Solutions Engineer");
   });
 
   it("labels pay for a match, and says when an Associate or Specialist title posts none", () => {
     expect(payLabel("Solutions Engineer", null)).toBe("salary not listed");
     expect(payLabel("Associate Solutions Engineer", null)).toBe("salary not listed · Associate title");
     expect(payLabel("Solutions Engineering Specialist", null)).toBe("salary not listed · Specialist title");
+    expect(payLabel("Junior Software Engineer", null)).toBe("salary not listed · Junior title");
     expect(payLabel("Associate Solutions Engineer", parsePay("$120k-$140k"))).toBe("$120k–$140k");
     expect(payLabel("Solutions Engineer", parsePay("$140k - $160k OTE"))).toBe("$140k–$160k, includes variable pay");
     expect(payLabel("Associate Solutions Engineer", null).length).toBeLessThanOrEqual(40);
   });
 
-  it("tells contract work from full-time", () => {
-    expect(jobType({ title: "AI Engineer (Contract)", text: "" })).toBe("gig");
-    expect(jobType({ title: "AI Engineer", text: "Employment Type: Freelance, $70/hr" })).toBe("gig");
-    expect(jobType({ title: "AI Engineer", text: "Employment Type: Full-Time" })).toBe("full-time");
-    expect(jobType({ title: "Backend Engineer", text: "", typeHint: "gig" })).toBe("gig");
+  it("tells contract, freelance and part-time work from a full-time role", () => {
+    expect(isFullTime({ title: "AI Engineer (Contract)", text: "" })).toBe(false);
+    expect(isFullTime({ title: "AI Engineer", text: "Employment Type: Freelance, $70/hr" })).toBe(false);
+    expect(isFullTime({ title: "Automation Developer, part-time", text: "" })).toBe(false);
+    expect(isFullTime({ title: "AI Engineer", text: "Employment Type: Full-Time" })).toBe(true);
+    expect(isFullTime({ title: "AI Engineer", text: "" })).toBe(true);
+    // It says full-time, and only the description mentions a contract: a full-time role.
+    expect(isFullTime({ title: "Solutions Engineer", text: "Full-time. You will review each customer contract." })).toBe(true);
+    // The title says contract, so it is one, whatever the description says.
+    expect(isFullTime({ title: "Solutions Engineer (Contract)", text: "Full-time hours for six months." })).toBe(false);
   });
 });
 
-describe("Career Agent: ranking and picking", () => {
+describe("Applications bot: ranking and picking", () => {
   it("drops misfits and ranks fresher postings first", () => {
     const c = candidates(
       [
@@ -179,29 +302,35 @@ describe("Career Agent: ranking and picking", () => {
     expect(steered[0]!.score).toBeGreaterThan(base.find((x) => x.company === "Liked Co")!.score);
   });
 
-  it("picks up to N of a type, never a match already shown, one per company first", () => {
-    const c = candidates(
-      [job("Solutions Engineer", { key: "a", company: "A" }), job("Solutions Engineer", { key: "b", company: "A" }), job("Software Engineer", { key: "c", company: "B" }), job("AI Engineer (Contract)", { key: "g", company: "G" })],
-      prefs,
-      tasteFrom([]),
-      now,
-      REMOTE_BOARDS,
-    );
-    expect(pick(c, "full-time", 2, new Set()).map((x) => x.key)).toEqual(["a", "c"]);
-    expect(pick(c, "full-time", 2, new Set(["a"])).map((x) => x.key)).toEqual(["b", "c"]);
-    expect(pick(c, "gig", 10, new Set()).map((x) => x.key)).toEqual(["g"]);
+  it("leaves contract postings out, and picks up to N, never a match already shown, one per company first", () => {
+    const raws = [job("Solutions Engineer", { key: "a", company: "A" }), job("Solutions Engineer", { key: "b", company: "A" }), job("Software Engineer", { key: "c", company: "B" }), job("AI Engineer (Contract)", { key: "g", company: "G" })];
+    const c = candidates(raws, prefs, tasteFrom([]), now, REMOTE_BOARDS);
+    expect(c.map((x) => x.key)).not.toContain("g");
+    expect(notFullTimeCount(raws, roles)).toBe(1);
+    expect(pick(c, 2, new Set()).map((x) => x.key)).toEqual(["a", "c"]);
+    expect(pick(c, 2, new Set(["a"])).map((x) => x.key)).toEqual(["b", "c"]);
+    expect(pick(c, 10, new Set())).toHaveLength(3);
   });
 
-  it("ranks your first role first, Engineer I and II up, and an Associate title with no base posted down", () => {
+  it("ranks your first role first and the level you are looking for up, and leaves senior titles out", () => {
     const order = (raws: RawJob[]) => candidates(raws, prefs, tasteFrom([]), now, REMOTE_BOARDS).map((x) => x.company);
     // Same age, same place: the role order decides.
-    expect(order([job("AI Engineer", { company: "AI" }), job("Software Engineer", { company: "SWE" }), job("Solutions Engineer", { company: "SE" }), job("GTM Engineer", { company: "GTM" })])).toEqual(["SE", "SWE", "AI", "GTM"]);
-    // Within one role, the level decides.
-    expect(order([job("Associate Solutions Engineer", { company: "Associate" }), job("Solutions Engineer", { company: "Plain" }), job("Solutions Engineer II", { company: "Two" }), job("Senior Solutions Engineer", { company: "Senior" })])).toEqual(["Two", "Plain", "Senior", "Associate"]);
-    // A posted salary that clears your floor speaks for itself: no mark against the Associate title.
-    const withPay = candidates([job("Associate Solutions Engineer", { company: "Paid", text: "$125k-$140k" }), job("Associate Solutions Engineer", { company: "Unlisted" })], prefs, tasteFrom([]), now, REMOTE_BOARDS);
+    expect(order([job("AI Engineer", { company: "AI" }), job("Software Engineer", { company: "SWE" }), job("Solutions Engineer", { company: "SE" }), job("GTM Engineer", { company: "GTM" })])).toEqual(["SE", "AI", "SWE", "GTM"]);
+    // Within one role, the level decides: level I first, then a plain title and level II.
+    // A senior or level III title is above your level and not a match at all (lib/domain/levelPolicy.ts).
+    expect(order([job("Solutions Engineer III", { company: "Three" }), job("Solutions Engineer", { company: "Plain" }), job("Solutions Engineer II", { company: "Two" }), job("Solutions Engineer I", { company: "One" }), job("Senior Solutions Engineer", { company: "Senior" }), job("Sr. Solutions Engineer", { company: "Sr" })])).toEqual(["One", "Plain", "Two"]);
+    // Junior and Associate titles are the level you asked for: above a plain title.
+    expect(order([job("Solutions Engineer", { company: "Plain" }), job("Associate Solutions Engineer", { company: "Associate" }), job("Junior Solutions Engineer", { company: "Junior" })])).toEqual(["Associate", "Junior", "Plain"]);
+    expect(seniorCount([job("Senior Solutions Engineer"), job("Sr. AI Engineer"), job("Solutions Engineer"), job("Senior AI Engineer (Contract)"), job("Senior Accountant")], roles)).toBe(2);
+    // A Specialist title usually pays less: with no base posted it ranks lower. A posted salary speaks for itself.
+    const withPay = candidates([job("Integration Engineer Specialist", { company: "Paid", text: "$125k-$140k" }), job("Integration Engineer Specialist", { company: "Unlisted" })], prefs, tasteFrom([]), now, REMOTE_BOARDS);
     expect(withPay.map((x) => x.company)).toEqual(["Paid", "Unlisted"]);
-    expect(withPay[0]!.score - withPay[1]!.score).toBe(13);
+    expect(withPay[0]!.score - withPay[1]!.score).toBe(16);
+    // Pay that reaches the figure you are aiming at ranks above pay that only clears your floor.
+    const aim = { roles, minSalary: 85_000, targetSalary: 100_000 };
+    const byPay = candidates([job("Solutions Engineer", { company: "Under", text: "$85k-$95k" }), job("Solutions Engineer", { company: "Reaches", text: "$90k-$105k" }), job("Solutions Engineer", { company: "Too low", text: "$70k-$80k" }), job("Solutions Engineer", { company: "Unlisted" })], aim, tasteFrom([]), now, REMOTE_BOARDS);
+    expect(byPay.map((x) => x.company)).toEqual(["Reaches", "Under", "Unlisted"]);
+    expect(byPay[0]!.score - byPay[1]!.score).toBe(4);
     // A figure that includes variable pay counts for less than a base figure.
     const basis = candidates([job("Solutions Engineer", { company: "OTE", text: "$140k - $160k OTE" }), job("Solutions Engineer", { company: "Base", text: "$125k base" })], prefs, tasteFrom([]), now, REMOTE_BOARDS);
     expect(basis.map((x) => x.company)).toEqual(["Base", "OTE"]);
@@ -215,9 +344,16 @@ describe("Career Agent: ranking and picking", () => {
 
   it("builds https saved searches for sites with no public feed", () => {
     const s = savedSearches(roles);
-    expect(s.map((x) => x.site)).toEqual(expect.arrayContaining(["LinkedIn", "Indeed", "Glassdoor", "Upwork", "Contra"]));
+    expect(s.map((x) => x.site)).toEqual(expect.arrayContaining(["LinkedIn", "Indeed", "Glassdoor"]));
+    // Full-time roles only: no freelance marketplaces.
+    for (const gone of ["Upwork", "Contra"]) expect(s.map((x) => x.site)).not.toContain(gone);
     for (const x of s) expect(new URL(x.url).protocol).toBe("https:");
     expect(decodeURIComponent(s[0]!.url)).toContain('"Forward Deployed Engineer"');
+    // The jobs no public feed carries: hybrid and on-site near home.
+    const local = s.filter((x) => /Salt Lake|Salt Lake City/.test(x.site));
+    expect(local.map((x) => x.site)).toEqual(["LinkedIn · Salt Lake area", "Indeed · near Salt Lake City"]);
+    expect(new URL(local[0]!.url).searchParams.get("location")).toBe("Salt Lake City Metropolitan Area");
+    expect(new URL(local[1]!.url).searchParams.get("l")).toBe("Salt Lake City, UT");
   });
 });
 
@@ -239,24 +375,22 @@ describe("Job feeds", () => {
     expect(parseWwr("<not xml")).toEqual([]);
   });
 
-  it("reads Hacker News threads, and only SEEKING FREELANCER posts from the freelancer thread", () => {
+  it("reads the Hacker News hiring thread, one posting per top-level comment", () => {
     const thread = {
       id: 1,
       children: [
         { id: 11, created_at: "2026-11-02T16:00:00Z", text: "Acme | AI Engineer | REMOTE (US) | $150k<p>We build agents." },
         { id: 12, created_at: "2026-11-02T16:00:00Z", text: "SEEKING WORK | Rust dev | Berlin" },
-        { id: 13, created_at: "2026-11-02T16:00:00Z", text: "SEEKING FREELANCER | Beta Co | AI automation build | Remote (US) | $80/hr" },
         { id: 14, created_at: "2026-11-02T16:00:00Z", text: null },
       ],
     };
-    expect(parseHnThread(thread, false).map((j) => j.company)).toEqual(["Acme", "SEEKING WORK", "Beta Co"]);
-    const gigs = parseHnThread(thread, true);
-    expect(gigs).toHaveLength(1);
-    expect(gigs[0]).toMatchObject({ company: "Beta Co", typeHint: "gig", url: "https://news.ycombinator.com/item?id=13" });
+    const jobs = parseHnThread(thread);
+    expect(jobs.map((j) => j.company)).toEqual(["Acme", "SEEKING WORK"]);
+    expect(jobs[0]).toMatchObject({ company: "Acme", source: "HN Who's Hiring", url: "https://news.ycombinator.com/item?id=11" });
   });
 });
 
-describe("Applications and the Approval Queue", () => {
+describe("Applications and the apply queues", () => {
 
 
   it("puts the referral and the resume to use in the approval", () => {
@@ -323,7 +457,7 @@ describe("Logging applications from email", () => {
       ],
       apps,
     );
-    expect(changes.update).toEqual([{ id: "a1", company: "Acme", from: "applied", status: "interview", statusAt: "2026-11-12T15:00:00Z" }]);
+    expect(changes.update).toEqual([{ id: "a1", company: "Acme", from: "applied", status: "interview", stage: "interview", statusAt: "2026-11-12T15:00:00Z" }]);
     expect(changes.create).toEqual([]);
   });
 
@@ -367,3 +501,34 @@ describe("Career snapshot (Atlas's own tracker)", () => {
     expect(parseNext("no next step here")).toEqual({ nextAction: "", nextActionDue: "" });
   });
 });
+
+describe("Applications bot: a brief's Good fits list (one list since 23 Nov 2026)", () => {
+  const board = (n: number) => job("Solutions Engineer", { company: `Board Co ${n}`, url: `https://job-boards.greenhouse.io/board${n}/jobs/${1000 + n}` });
+  const site = (n: number) => job("Solutions Engineer", { company: `Feed Co ${n}`, url: `https://jobicy.com/jobs/${n}` });
+  const ranked = (jobs: ReturnType<typeof job>[]) => candidates(jobs, prefs, tasteFrom([]), now, REMOTE_BOARDS);
+
+  it("picks from every source alike, never repeats a job, and a second run only tops the list up", () => {
+    const cands = ranked([...Array.from({ length: 12 }, (_, n) => site(n)), ...Array.from({ length: 8 }, (_, n) => board(n))]);
+    const first = pick(cands, 10, new Set());
+    expect(first).toHaveLength(10);
+    const second = pick(cands, 10, new Set(first.map((c) => c.key)));
+    expect(second.some((c) => first.includes(c))).toBe(false);
+    expect(pick(cands, 0, new Set())).toEqual([]);
+  });
+});
+
+describe("Applications bot: titles above your level", () => {
+  it("does not offer a Staff+ or Principal+ title", () => {
+    const out = candidates([job("Staff+ Software Engineer, Deployment"), job("Principal+ Software Engineer"), job("Software Engineer")], prefs, tasteFrom([]), now, REMOTE_BOARDS);
+    expect(out.map((c) => c.title)).toEqual(["Software Engineer"]);
+  });
+});
+
+describe("Applications bot: the board scan keeps seats for roles at your level", () => {
+  it("knows a title above your level, or not your kind of role, before the scan's cap", async () => {
+    const { wrongLevel } = await import("@/lib/domain/careerAgent");
+    for (const t of ["Senior Software Engineer, Backend", "Staff Software Engineer", "Staff+ Software Engineer", "Sr. Solutions Engineer", "Engineering Manager", "Software Engineering Intern", "Technical Recruiter"]) expect(wrongLevel(t), t).toBe(true);
+    for (const t of ["Software Engineer II, Backend", "Solutions Engineer", "Forward Deployed Engineer", "Software Engineer I (Remote Eligible)"]) expect(wrongLevel(t), t).toBe(false);
+  });
+});
+

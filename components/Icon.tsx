@@ -35,6 +35,8 @@ const PATHS = {
   send: "M22 2L11 13M22 2l-7 20-4-9-9-4z",
   chevron: "M6 9l6 6 6-6",
   growth: "M3 17l6-6 4 4 8-8M15 7h6v6",
+  chart: "M3 21h18M6 17v-5M11 17V7M16 17v-8M21 17V4",
+  flow: "M4 5h6v4H4zM14 15h6v4h-6zM7 9v3h10v3",
 } as const;
 
 export type IconName = keyof typeof PATHS;

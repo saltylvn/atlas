@@ -10,8 +10,8 @@ export const metadata = { title: "Projects" };
 
 const SECTIONS: { key: ProjectStatus; title: string; hint: string; color: string }[] = [
   { key: "active", title: "Active", hint: "In motion. Each should have a next step.", color: "var(--c-green)" },
-  { key: "exploring", title: "Exploring", hint: "Worth a little time to decide", color: "var(--c-blue)" },
-  { key: "idea", title: "Ideas", hint: "Captured, not committed", color: "var(--c-purple)" },
+  { key: "exploring", title: "Exploring", hint: "Worth a little time to decide", color: "var(--c-slate)" },
+  { key: "idea", title: "Ideas", hint: "Captured, not committed", color: "var(--c-indigo)" },
   { key: "parked", title: "Parked", hint: "On hold until their review date", color: "var(--c-grey)" },
 ];
 
@@ -63,7 +63,7 @@ export default async function ProjectsPage() {
                       {p.why && <p className="text-xs text-ink-3">{p.why}</p>}
                       <div className="mt-1.5 flex flex-wrap gap-1.5">
                         <Pill color="var(--c-indigo)">{p.kind.replace("-", " ")}</Pill>
-                        {p.reviewOn && <Pill color={p.reviewOn <= today ? "var(--c-orange)" : "var(--c-grey)"}>Review {shortDate(p.reviewOn)}</Pill>}
+                        {p.reviewOn && <Pill color={p.reviewOn <= today ? "var(--c-warn)" : "var(--c-grey)"}>Review {shortDate(p.reviewOn)}</Pill>}
                       </div>
                     </div>
                     <div className="flex items-center gap-1">

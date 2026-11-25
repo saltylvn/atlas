@@ -17,7 +17,7 @@ const said = (key: string, metric: string, over: Partial<MentorInsight> = {}): M
 });
 const input = (prior: MentorInsight[]) => ({ today: TODAY, slot: "midday", prior }) as unknown as MentorInput;
 
-describe("The Mentor reviewing again with fresh data", () => {
+describe("The Career Mentor reviewing again with fresh data", () => {
   it("may say again today what moved, never what did not (a morning priority keeps its progress note at midday)", () => {
     const prior = [said("queue:waiting", "3/2"), said("queue:follow-ups", "1")];
     const now = [obs("queue:waiting", "5/2"), obs("queue:follow-ups", "1")];
@@ -59,14 +59,14 @@ describe("The Mentor reviewing again with fresh data", () => {
 
   it("offers another try when the last review did not finish, or fell back to rules with the model on", () => {
     const run = (task: string, status: string, detail: string) => ({ agent: "mentor", task, status, detail });
-    expect(mentorRetryReason([run("Mentor: morning priority", "failed", "timeout")], true)).toBe("The Mentor's last review did not finish.");
+    expect(mentorRetryReason([run("Mentor: morning priority", "failed", "timeout")], true)).toBe("The Career Mentor's last review did not finish.");
     expect(mentorRetryReason([run("Mentor: midday check", "succeeded", "2 insights (queue, profile), by rules")], true)).toContain("used its rules");
     // The model off: rules are the plan, not a failure.
     expect(mentorRetryReason([run("Mentor: midday check", "succeeded", "2 insights (queue), by rules")], false)).toBeNull();
     expect(mentorRetryReason([run("Mentor: evening review", "succeeded", "1 insight (queue), by Gemini")], true)).toBeNull();
     expect(mentorRetryReason([run("Mentor: midday check", "succeeded", "nothing new worth raising")], true)).toBeNull();
     // The newest review counts: a refresh that worked clears an earlier failure.
-    expect(mentorRetryReason([run("Refresh and review", "succeeded", "Scout, Applications, Analyst, Mentor refreshed"), run("Mentor: morning priority", "failed", "x")], true)).toBeNull();
+    expect(mentorRetryReason([run("Refresh and review", "succeeded", "Scout, Applications, Analyst, Career Mentor refreshed"), run("Mentor: morning priority", "failed", "x")], true)).toBeNull();
     expect(mentorRetryReason([{ agent: "scout", task: "Scout", status: "failed", detail: "" }], true)).toBeNull();
   });
 
@@ -108,7 +108,7 @@ describe("Refresh and review", () => {
     calls.length = 0;
   });
 
-  it("brings the data up to date first, then the Mentor reviews with it, and says what changed", async () => {
+  it("brings the data up to date first, then the Career Mentor reviews with it, and says what changed", async () => {
     const { runMentorRefresh } = await import("@/lib/agents/mentorRefresh");
     const { runAnalyst } = await import("@/lib/agents/analyst");
     const mentor = await import("@/lib/agents/mentor");
@@ -116,7 +116,7 @@ describe("Refresh and review", () => {
     const { ctx } = demo();
     const out = await runMentorRefresh(ctx, ctx.store);
     if ("missing" in out) throw new Error(out.why);
-    // The Scout and the email reading first (in either order), then the Analyst, then the Mentor.
+    // The Scout and the email reading first (in either order), then the Analyst, then the Career Mentor.
     expect(calls.slice(-2)).toEqual(["analyst", "mentor"]);
     expect(new Set(calls.slice(0, 3))).toEqual(new Set(["scout", "mail", "track"]));
     expect(vi.mocked(runAnalyst).mock.calls[0]![1]).toMatchObject({ reuseToday: false, trigger: "run-now" });
@@ -127,10 +127,10 @@ describe("Refresh and review", () => {
       "Scout: 12 new postings recorded (150 in the last 30 days).",
       "Applications: 1 moved forward, 1 roles filled in.",
       "Analyst: 150 postings, best fit Software Engineer.",
-      "Mentor: 1 new insight, 1 updated with the new numbers.",
+      "Career Mentor: 1 new insight, 1 updated with the new numbers.",
     ]);
     const run = (await ctx.store.agentRuns.recent(10)).find((r) => r.task === "Refresh and review" && r.status === "succeeded")!;
-    expect(run.trace!.map((s) => s.name)).toEqual(["Ask the Scout for fresh postings", "Update applications from new job emails", "Ask the Analyst for a fresh market report", "Ask the Mentor to review with the fresh data"]);
+    expect(run.trace!.map((s) => s.name)).toEqual(["Ask the Scout for fresh postings", "Update applications from new job emails", "Ask the Analyst for a fresh market report", "Ask the Career Mentor to review with the fresh data"]);
     spy.mockRestore();
   });
 });

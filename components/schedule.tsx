@@ -101,7 +101,7 @@ export function NowNextCard({
 }
 
 function itemStyle(i: TimelineItem): { bar: string; label: string } {
-  if (i.kind === "event") return { bar: i.source === "interview" ? "var(--c-pink)" : "var(--c-grey)", label: i.source === "interview" ? "Interview" : "Meeting" };
+  if (i.kind === "event") return { bar: i.source === "interview" ? "var(--c-career)" : "var(--c-grey)", label: i.source === "interview" ? "Interview" : "Meeting" };
   if (i.kind === "pinned") return { bar: "var(--brand)", label: i.deep ? "Deep work · scheduled" : "Scheduled" };
   return { bar: "var(--brand)", label: i.deep ? "Deep work · suggested" : "Suggested" };
 }
@@ -154,9 +154,9 @@ export function DayTimeline({
           {insights.map((x) => (
             <li
               key={x.text}
-              className={`flex items-start gap-2 rounded-lg px-3 py-2 text-sm ${x.level === "warn" ? "bg-[color-mix(in_srgb,var(--c-orange)_14%,transparent)]" : "bg-brand-soft"}`}
+              className={`flex items-start gap-2 rounded-lg px-3 py-2 text-sm ${x.level === "warn" ? "bg-[color-mix(in_srgb,var(--c-warn)_14%,transparent)]" : "bg-brand-soft"}`}
             >
-              <Icon name={x.level === "warn" ? "alert" : "sparkle"} size={15} className={`mt-0.5 shrink-0 ${x.level === "warn" ? "text-[var(--c-orange)]" : "text-brand"}`} />
+              <Icon name={x.level === "warn" ? "alert" : "sparkle"} size={15} className={`mt-0.5 shrink-0 ${x.level === "warn" ? "text-[var(--c-warn-ink)]" : "text-brand"}`} />
               <span>{x.text}</span>
             </li>
           ))}
@@ -296,7 +296,7 @@ export function WeekLoadCard({ loads, moves, tasks, today, week }: { loads: DayL
               <span className={`text-right text-xs tabular-nums ${l.overMin > 0 ? "font-semibold text-bad" : "text-ink-3"}`}>
                 {l.dayOff ? "Day off" : past ? "—" : `${minutesLabel(l.plannedMin)} / ${minutesLabel(l.availableMin)}`}
                 {l.overMin > 0 && <span className="block">+{minutesLabel(l.overMin)} over</span>}
-                {!past && !l.dayOff && l.meetingMin >= 240 && <span className="block text-[var(--c-orange)]">{minutesLabel(l.meetingMin)} meetings</span>}
+                {!past && !l.dayOff && l.meetingMin >= 240 && <span className="block text-[var(--c-warn-ink)]">{minutesLabel(l.meetingMin)} meetings</span>}
               </span>
             </li>
           );

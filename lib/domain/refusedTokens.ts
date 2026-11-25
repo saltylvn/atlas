@@ -1,9 +1,9 @@
 // A refused token on a machine endpoint, as the audit trail records it. Pure: no I/O.
 //
 // A machine endpoint is a route that authenticates with a bearer token instead of a
-// session: the scheduler's routes, Siri capture and the keep-alive. A missing or wrong
-// token answers 401; lib/security/refusedToken.ts writes a throttled record of it, and the
-// QA Agent counts the week's records (lib/domain/qa.ts).
+// session: the scheduler's routes, the 15-minute watch, Siri capture and the keep-alive.
+// A missing or wrong token answers 401; lib/security/refusedToken.ts writes a throttled
+// record of it, and the QA Agent counts the week's records (lib/domain/qa.ts).
 //
 // What a record holds: the route, from the fixed list below (never read from the request),
 // and how many requests were refused, split by whether they carried a credential at all.
@@ -11,8 +11,15 @@
 // query string or body, or anything about the caller (no address, no user agent).
 
 /** Every route that authenticates with a bearer token. test/secondLayer.test.ts checks it against app/api. */
-export const MACHINE_ROUTES = ["/api/capture", "/api/keepalive", "/api/cron/morning", "/api/cron/afternoon", "/api/cron/evening", "/api/cron/qa", "/api/cron/sync"] as const;
-export type MachineRoute = (typeof MACHINE_ROUTES)[number];
+export const MACHINE_ROUTES = ["/api/capture", "/api/keepalive", "/api/cron/morning", "/api/cron/afternoon", "/api/cron/evening", "/api/cron/qa", "/api/cron/sync", "/api/cron/watch", "/api/cron/night"] as const;
+/**
+ * Atlas Autofill's routes: each checks the extension's own key (lib/extensionApi.ts), not a
+ * bearer secret, and records a refusal the same way.
+ */
+export const EXTENSION_ROUTES = ["/api/extension/ping", "/api/extension/answers", "/api/extension/resume", "/api/extension/learn"] as const;
+export type MachineRoute = (typeof MACHINE_ROUTES)[number] | (typeof EXTENSION_ROUTES)[number];
+/** Every route a refused token may be recorded for. */
+export const TOKEN_ROUTES: readonly MachineRoute[] = [...MACHINE_ROUTES, ...EXTENSION_ROUTES];
 
 /** The audit action of a refused-token record. Its outcome is always "denied". */
 export const TOKEN_REFUSED = "token.refused";
@@ -92,7 +99,7 @@ export function refusedSummary(rows: readonly RefusedRecord[]): RefusedSummary {
     refused += n;
     missing += tally?.missing ?? 0;
     wrong += tally?.wrong ?? 0;
-    const route = (MACHINE_ROUTES as readonly string[]).includes(r.target) ? r.target : "another route";
+    const route = (TOKEN_ROUTES as readonly string[]).includes(r.target) ? r.target : "another route";
     byRoute.set(route, (byRoute.get(route) ?? 0) + n);
     // Compared as instants: the database and the demo store write the same moment differently.
     const at = Date.parse(r.at);

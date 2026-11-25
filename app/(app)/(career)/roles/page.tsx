@@ -7,16 +7,15 @@ import { roleTitles } from "@/lib/domain/similarTitles";
 import { ResumeLinkForm } from "@/components/client/CareerActions";
 import { ResumeSyncButton } from "@/components/client/CareerDesk";
 import { RoleOutlookCard } from "@/components/RoleOutlookCard";
-import { notionConfigured } from "@/lib/integrations/notion";
 import { RESUME_SYNC_TASK, resumeSyncReady } from "@/lib/agents/resumeSync";
 import { figmaConfigured } from "@/lib/integrations/figma";
 import { localTime, shortDate, localDate } from "@/lib/domain/dates";
 import { Icon } from "@/components/Icon";
 import { CardHeader, Empty, PageHeader, Pill, timeAgo } from "@/components/ui";
 
-export const metadata = { title: "Target roles" };
+export const metadata = { title: "Roles and resumes" };
 
-const COLORS = ["var(--c-purple)", "var(--c-blue)", "var(--c-teal)", "var(--c-green)", "var(--c-orange)", "var(--c-pink)"];
+const COLORS = ["var(--c-indigo)", "var(--c-slate)", "var(--c-brown)", "var(--c-blue)", "var(--c-green)", "var(--c-grey)"];
 
 /** Your career direction (Fable, Nov 2026): the market roles and skills to lead with. */
 function CareerDirection({ roles }: { roles: string[] }) {
@@ -26,7 +25,7 @@ function CareerDirection({ roles }: { roles: string[] }) {
       <CardHeader
         title="Career direction"
         icon="bulb"
-        hint={`From ${d.from}, ${d.on}. The market's view, for reference. Your own priority order comes from Notion.`}
+        hint={`From ${d.from}, ${d.on}. The market's view, for reference. Your own order is set on Target Roles.`}
         action={
           <a href={d.notion} target="_blank" rel="noopener noreferrer" className="btn btn-ghost btn-sm">
             Reflect in Notion <Icon name="external" size={14} />
@@ -143,10 +142,10 @@ export default async function TargetRolesPage() {
   return (
     <div className="space-y-5">
       <PageHeader
-        title="Target roles"
-        sub={`The ${roles.length} roles the Applications Agent hunts for, in your priority order${notion?.ok ? " from Notion" : ""}, with similar titles found across ${matches.length} matched postings.`}
+        title="Roles and resumes"
+        sub={`The ${roles.length} roles the Applications bot hunts for, in your priority order, with similar titles found across ${matches.length} matched postings.`}
         action={
-          <Link href="/settings#career" className="btn btn-ghost btn-sm">
+          <Link href="/career/roles" className="btn btn-ghost btn-sm">
             Edit roles
           </Link>
         }
@@ -156,7 +155,7 @@ export default async function TargetRolesPage() {
         <p className={`card px-4 py-3 text-sm ${notion.ok ? "text-ink-2" : "text-bad"}`}>
           {notion.ok ? (
             <>
-              Role order and resumes come from the <b>Resumes</b> database in Notion ({notion.roles} roles, {notion.resumes} resume{notion.resumes === 1 ? "" : "s"}{notion.master ? " including the master" : ""}). Change them there and this page follows.{" "}
+              Resumes come from the <b>Resumes</b> database in Notion ({notion.resumes} resume{notion.resumes === 1 ? "" : "s"}{notion.master ? " including the master" : ""}). Your roles and their order are set in Atlas, on Target Roles.{" "}
             </>
           ) : (
             <>Notion could not be read, so this is the last good copy. {notion.message} </>
@@ -174,14 +173,13 @@ export default async function TargetRolesPage() {
         evidence={market?.report.evidence ?? null}
         reportDate={market?.report.outlook ? market.forDate : null}
         current={roles.map((r) => r.name)}
-        writesToNotion={ctx.mode === "live" && notionConfigured()}
       />
 
       {settings.careerMasterResume && (
         <section className="card card-pad flex flex-wrap items-center justify-between gap-3">
           <div>
             <p className="h-display font-semibold">Master resume</p>
-            <p className="text-sm text-ink-2">The copy your role resumes are tailored from, and the one for LinkedIn. Not a role: the Applications Agent does not hunt for it.</p>
+            <p className="text-sm text-ink-2">The copy your role resumes are tailored from, and the one for LinkedIn. Not a role: the Applications bot does not hunt for it.</p>
           </div>
           <a href={settings.careerMasterResume} target="_blank" rel="noopener noreferrer" className="btn btn-ghost btn-sm">
             Open <Icon name="external" size={14} />
@@ -193,7 +191,7 @@ export default async function TargetRolesPage() {
         <CardHeader
           title="Resume text from Figma"
           icon="refresh"
-          hint="Every evening about 6 PM, Monday to Saturday, the Applications Agent compares each resume's Figma frame (the link in the row's Notes) with the text on that row's Notion page. A resume that changed in Figma is mirrored into Notion and into Ask Atlas."
+          hint="Every Monday about 6 PM the Applications bot compares each resume's Figma frame (the link in the row's Notes) with the text on that row's Notion page. A resume that changed in Figma is mirrored into Notion and into Ask Atlas, and Atlas tells you how it went. It runs weekly because Figma's free plan allows only a few reads a month; Sync now uses one of them."
           action={syncReady ? <ResumeSyncButton /> : undefined}
         />
         <ul className="list-disc space-y-1 pl-5 text-sm text-ink-2">
@@ -260,7 +258,7 @@ export default async function TargetRolesPage() {
 
             <p className="eyebrow mb-1.5">Similar job titles found in your searches</p>
             {g.similar.length === 0 ? (
-              <Empty>None yet. Titles appear here as the Applications Agent finds matches for this role.</Empty>
+              <Empty>None yet. Titles appear here as the Applications bot finds matches for this role.</Empty>
             ) : (
               <ul className="space-y-1">
                 {g.similar.map((t) => (
@@ -288,8 +286,8 @@ export default async function TargetRolesPage() {
 
       <p className="text-sm text-ink-3">
         Your answer bank moved to{" "}
-        <Link href="/applications#answers" className="text-brand hover:underline">
-          Applications
+        <Link href="/career/setup#answers" className="text-brand hover:underline">
+          Setup
         </Link>
         .
       </p>

@@ -1,6 +1,6 @@
-// Notion as the source of truth for your target roles. Pure: the integration
-// (lib/integrations/notion.ts) fetches the Resumes database from Atlas HQ and this file
-// turns its rows into the role order and resume links Atlas already keeps in Settings.
+// Notion as the home of your resumes. Pure: the integration (lib/integrations/notion.ts)
+// fetches the Resumes database from Atlas HQ and this file turns its rows into the resume
+// links Atlas keeps in Settings. Atlas owns the role list and its order (19 Nov 2026).
 //
 // A row is a role: its title, a Priority number (1 = first), an optional Share link, and
 // an optional attached resume file. Notion's text is treated as data: names are trimmed
@@ -8,7 +8,7 @@
 // as markup.
 
 import { figmaRef, type FigmaRef } from "./resumeSync";
-import { rolesFrom } from "./targetRoles";
+import { canonicalRole } from "./targetRoles";
 import type { Settings } from "./types";
 
 export interface NotionRole {
@@ -69,10 +69,27 @@ function prop(props: Props, type: string, preferred: string): { [k: string]: unk
   return Object.values(props).find((p) => p?.type === type);
 }
 
+/** The PDF in a row's Resume file column: its name and Notion's link to it (the link expires within the hour). */
+export interface ResumeFile {
+  name: string;
+  url: string;
+}
+
+/** The first file of a Notion files property that Notion itself stores. A link to another site is not followed. */
+function firstFile(files: unknown): ResumeFile | null {
+  if (!Array.isArray(files)) return null;
+  for (const f of files) {
+    const item = f as { name?: unknown; type?: unknown; file?: { url?: unknown } };
+    const url = item?.type === "file" ? item.file?.url : null;
+    if (typeof url === "string" && /^https:\/\//.test(url) && url.length < 3000) return { name: typeof item.name === "string" ? item.name.slice(0, 200) : "resume.pdf", url };
+  }
+  return null;
+}
+
 /** Rows of the Resumes database (a Notion query response's `results`) as roles, in priority order. */
-function parseRows(results: unknown): (NotionRole & { master: boolean; notes: string })[] {
+function parseRows(results: unknown): (NotionRole & { master: boolean; notes: string; file: ResumeFile | null })[] {
   if (!Array.isArray(results)) return [];
-  const rows: (NotionRole & { master: boolean; notes: string })[] = [];
+  const rows: (NotionRole & { master: boolean; notes: string; file: ResumeFile | null })[] = [];
   for (const page of results) {
     if (!page || typeof page !== "object") continue;
     const p = page as { id?: unknown; properties?: Props; url?: unknown; in_trash?: unknown; archived?: unknown };
@@ -91,6 +108,7 @@ function parseRows(results: unknown): (NotionRole & { master: boolean; notes: st
       shareLink: httpsLink(prop(p.properties, "url", "Share link")?.url),
       pageUrl: httpsLink(p.url),
       hasFile: Array.isArray(files) && files.length > 0,
+      file: firstFile(files),
       pageId: typeof p.id === "string" && PAGE_ID.test(p.id) ? p.id : "",
       master: NOT_A_ROLE.test(name),
       notes: linkedText(prop(p.properties, "rich_text", "Notes")?.rich_text),
@@ -103,12 +121,13 @@ function parseRows(results: unknown): (NotionRole & { master: boolean; notes: st
 const resumeLink = (r: Pick<NotionRole, "shareLink" | "hasFile" | "pageUrl">) => r.shareLink || (r.hasFile ? r.pageUrl : "");
 
 /**
- * The Master Resume row's link, or "". The master is the copy the role resumes are
- * tailored from: Atlas keeps its link, and never treats it as a role.
+ * The Master Resume row's link (its resume, else its own page, which holds the resume's
+ * text), or "". The master is the copy the role resumes are tailored from: Atlas keeps
+ * its link, and never treats it as a role.
  */
 export function masterResumeFromNotion(results: unknown): string {
   const m = parseRows(results).find((r) => r.master);
-  return m ? resumeLink(m) : "";
+  return m ? resumeLink(m) || m.pageUrl : "";
 }
 
 export function rolesFromNotion(results: unknown): NotionRole[] {
@@ -129,34 +148,45 @@ export function rolesFromNotion(results: unknown): NotionRole[] {
 }
 
 export interface NotionRolesPatch {
-  careerRoles: string[];
   careerResumes: Record<string, string>;
+  /** How many role rows Notion holds (the Master Resume is not a role). */
+  roles: number;
   /** How many roles have a resume from Notion (a share link or an attached file). */
   resumes: number;
-  /** True when the order or a link differs from what Settings held. */
+  /** True when a link differs from what Settings held. */
   changed: boolean;
 }
 
 /**
- * What Settings should hold after a sync. Notion decides the role order. A resume link
- * from Notion (its Share link, else the row's page when a file is attached) replaces the
- * stored one; a role with nothing in Notion keeps the link you pasted in Atlas.
+ * What Settings should hold after a sync. Notion holds the resumes; Atlas decides which
+ * roles you target and in what order (Target Roles page), so a sync never changes that.
+ * A resume link from Notion (its Share link, else the row's page when a file is attached)
+ * replaces the stored one, filed under the role the row stands for today ("AI + Automation
+ * Engineer" and "AI Automation Engineering" file under AI Automation Engineer; a row named
+ * exactly for the role wins). A row with neither still has its page, where Atlas mirrors
+ * the resume's text: that page is the link, unless you pasted one in Atlas, which stays.
  */
-export function notionRolesPatch(rows: NotionRole[], current: Pick<Settings, "careerRoles" | "careerResumes">): NotionRolesPatch | null {
+export function notionRolesPatch(rows: NotionRole[], current: Pick<Settings, "careerResumes">): NotionRolesPatch | null {
   if (rows.length === 0) return null;
-  // Built-in roles keep their canonical names ("FDE" and "Forward Deployed Engineer" are one role).
-  const roles = rolesFrom(rows.map((r) => r.name));
-  const careerRoles = [...new Set(roles.map((r) => r.name))];
   const careerResumes = { ...(current.careerResumes ?? {}) };
+  const filed = new Set<string>();
   let resumes = 0;
-  rows.forEach((row, i) => {
-    const link = resumeLink(row);
-    if (!link) return;
-    careerResumes[roles[i]!.name] = link;
+  const exact = (row: NotionRole) => canonicalRole(row.name) === row.name.trim();
+  for (const row of [...rows.filter(exact), ...rows.filter((r) => !exact(r))]) {
+    const role = canonicalRole(row.name);
+    if (filed.has(role)) continue;
+    const own = resumeLink(row);
+    const pasted = current.careerResumes?.[role];
+    // A pasted link that is not some row's own page was set by you in Atlas.
+    const kept = pasted && !pasted.startsWith("https://www.notion.so/") && !pasted.startsWith("https://app.notion.com/") ? pasted : "";
+    const link = own || kept || row.pageUrl;
+    if (!link) continue;
+    filed.add(role);
+    careerResumes[role] = link;
     resumes++;
-  });
-  const before = JSON.stringify([current.careerRoles ?? [], current.careerResumes ?? {}]);
-  return { careerRoles, careerResumes, resumes, changed: before !== JSON.stringify([careerRoles, careerResumes]) };
+  }
+  const before = JSON.stringify(current.careerResumes ?? {});
+  return { careerResumes, roles: rows.length, resumes, changed: before !== JSON.stringify(careerResumes) };
 }
 
 // ---------------------------------------------------------------------------
@@ -222,35 +252,10 @@ export function resumePagesFromNotion(results: unknown): { name: string; pageId:
   return [...rows.filter((r) => r.master), ...rows.filter((r) => !r.master)].slice(0, MAX_ROLES + 1).map((r) => ({ name: r.name, pageId: r.pageId }));
 }
 
-export interface NotionRoleRows {
-  /** The names of the title and Priority properties, as this database spells them. */
-  titleProp: string;
-  priorityProp: string;
-  /** Every row, the Master Resume included, in Notion's order. */
-  rows: { pageId: string; name: string; priority: number | null; master: boolean }[];
-}
-
-/** The name of the first property of a type, preferring the expected one. */
-function propName(props: Props, type: string, preferred: string): string {
-  if (props[preferred]?.type === type) return preferred;
-  return Object.entries(props).find(([, p]) => p?.type === type)?.[0] ?? "";
-}
-
-/** The Resumes rows as the role-order writer needs them. Null when the database has no title or number column. */
-export function roleRowsFromNotion(results: unknown): NotionRoleRows | null {
-  if (!Array.isArray(results)) return null;
-  const first = results.find((p): p is { properties: Props } => Boolean(p) && typeof p === "object" && Boolean((p as { properties?: unknown }).properties));
-  if (!first) return null;
-  const titleProp = propName(first.properties, "title", "Role");
-  const priorityProp = propName(first.properties, "number", "Priority");
-  if (!titleProp || !priorityProp) return null;
-  return { titleProp, priorityProp, rows: parseRows(results).filter((r) => r.pageId).map((r) => ({ pageId: r.pageId, name: r.name, priority: r.priority, master: r.master })) };
-}
-
 /** Where each resume row's design lives: the first Figma frame link in its Notes, or null. */
-export function resumeSourcesFromNotion(results: unknown): { name: string; pageId: string; figma: FigmaRef | null }[] {
+export function resumeSourcesFromNotion(results: unknown): { name: string; pageId: string; figma: FigmaRef | null; file: ResumeFile | null }[] {
   const rows = parseRows(results).filter((r) => r.pageId);
-  return [...rows.filter((r) => r.master), ...rows.filter((r) => !r.master)].slice(0, MAX_ROLES + 1).map((r) => ({ name: r.name, pageId: r.pageId, figma: figmaRef(r.notes) }));
+  return [...rows.filter((r) => r.master), ...rows.filter((r) => !r.master)].slice(0, MAX_ROLES + 1).map((r) => ({ name: r.name, pageId: r.pageId, figma: figmaRef(r.notes), file: r.file }));
 }
 
 export const MAX_RESUME_CHARS = 12_000;

@@ -32,7 +32,7 @@ const prefs: EmailPrefs = {
   unsubscribed: ["oldbrand.com"],
 };
 
-describe("Email Agent: senders and your lists", () => {
+describe("Email bot: senders and your lists", () => {
   it("reduces a sender to its organization domain", () => {
     expect(senderKey("deals@email.costco.com")).toBe("costco.com");
     expect(senderKey("news@bbc.co.uk")).toBe("bbc.co.uk");
@@ -56,10 +56,14 @@ describe("Email Agent: senders and your lists", () => {
   });
 });
 
-describe("Email Agent: tags", () => {
+describe("Email bot: tags", () => {
   it("sorts job emails by kind, and ignores job alerts", () => {
     expect(jobKind({ fromEmail: "no-reply@us.greenhouse-mail.io", subject: "Thank you for applying to Acme", category: "noise" })).toBe("confirmation");
+    // Unread, the subject is all there is. Once the text is read and decides nothing, a subject alone is a reply.
     expect(jobKind({ fromEmail: "recruiting@acme.com", subject: "Interview availability for Solutions Engineer", category: "fyi" })).toBe("interview");
+    expect(jobKind({ fromEmail: "recruiting@acme.com", subject: "Interview availability for Solutions Engineer", category: "fyi", textVerdict: "none" })).toBe("reply");
+    // "Next steps" names no interview.
+    expect(jobKind({ fromEmail: "recruiting@acme.com", subject: "Next steps for your application", category: "fyi" })).toBe("reply");
     expect(jobKind({ fromEmail: "no-reply@hire.lever.co", subject: "Update on your application", category: "noise" })).toBe("reply");
     expect(jobKind({ fromEmail: "jane@startup.io", subject: "Solutions Architect opportunity", category: "fyi" })).toBe("recruiter");
     expect(jobKind({ fromEmail: "jobalerts-noreply@linkedin.com", subject: "New jobs for you: Solutions Engineer", category: "noise" })).toBeNull();
@@ -78,12 +82,26 @@ describe("Email Agent: tags", () => {
   });
 
   it("moves an interview invite into needs a reply", () => {
-    const [t] = tagInbox([mail("Acme Recruiting", "talent@acme.com", "Schedule your interview", { category: "noise", reason: "Notification sender" })], prefs);
-    expect(t).toMatchObject({ category: "reply", reason: "Interview invite", tag: "job", jobKind: "interview" });
+    const notice = { category: "noise" as const, reason: "Notification sender" };
+    // The text says it, whatever the subject.
+    const [said] = tagInbox([mail("Acme Recruiting", "talent@acme.com", "An update from Acme", { ...notice, textVerdict: "interview" })], prefs);
+    expect(said).toMatchObject({ category: "reply", reason: "Interview invite", tag: "job", jobKind: "interview" });
+    // Unread: the subject is all there is.
+    const [unread] = tagInbox([mail("Acme Recruiting", "talent@acme.com", "Schedule your interview", notice)], prefs);
+    expect(unread).toMatchObject({ category: "reply", reason: "Interview invite", tag: "job", jobKind: "interview" });
+  });
+
+  it("leaves an email in its pile when only the subject says interview and the text, once read, does not", () => {
+    const notice = { category: "noise" as const, reason: "Notification sender" };
+    const [read] = tagInbox([mail("Acme Recruiting", "talent@acme.com", "Schedule your interview", { ...notice, textVerdict: "none" })], prefs);
+    expect(read).toMatchObject({ ...notice, tag: "job", jobKind: "reply" });
+    // "Next steps" is a reply, read or not.
+    const [next] = tagInbox([mail("Acme Recruiting", "talent@acme.com", "Next steps for your application", notice)], prefs);
+    expect(next).toMatchObject({ ...notice, tag: "job", jobKind: "reply" });
   });
 });
 
-describe("Email Agent: declutter", () => {
+describe("Email bot: declutter", () => {
   it("proposes promotional senders you don't keep, most emails first", () => {
     const items = tagInbox(
       [
@@ -104,7 +122,7 @@ describe("Email Agent: declutter", () => {
   });
 });
 
-describe("Email Agent: report", () => {
+describe("Email bot: report", () => {
   it("leads with replies, counts finance, lists job emails and subscription updates, and asks approval to declutter", () => {
     const r = emailAgentReport({
       slot: "morning",

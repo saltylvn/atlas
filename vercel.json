@@ -18,6 +18,12 @@
     { "path": "/api/cron/sync", "schedule": "5 23 * * 1-6" },
     { "path": "/api/cron/evening", "schedule": "0 0 * * 0,2-6" },
     { "path": "/api/cron/evening", "schedule": "0 1 * * 0,2-6" },
-    { "path": "/api/cron/qa", "schedule": "0 1 * * 1" }
+    { "path": "/api/cron/qa", "schedule": "0 1 * * 1" },
+    { "path": "/api/cron/night", "schedule": "10 4 * * *" },
+    { "path": "/api/cron/night", "schedule": "40 4 * * *" },
+    { "path": "/api/cron/night", "schedule": "10 5 * * *" },
+    { "path": "/api/cron/night", "schedule": "40 5 * * *" },
+    { "path": "/api/cron/night", "schedule": "10 6 * * *" },
+    { "path": "/api/cron/night", "schedule": "40 6 * * *" }
   ]
 }

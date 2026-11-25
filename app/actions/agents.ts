@@ -25,6 +25,7 @@ import { interviewsFrom } from "@/lib/domain/calendarAgent";
 import { AGENT_IDS } from "@/lib/domain/types";
 import { assertSessionIsOwner, ownerServiceStore } from "@/lib/owner";
 import { rateLimit } from "@/lib/security/rateLimit";
+import { SCHEDULED_LIMIT_MS } from "@/lib/domain/deadline";
 import type { ActionResult } from "./_shared";
 
 const AgentParam = z.enum(AGENT_IDS);
@@ -35,8 +36,8 @@ function refresh() {
 }
 
 /**
- * The Mentor's "Refresh and review": the Scout reads the job boards and the Applications
- * Agent your new job emails, the Analyst recomputes the market report, then the Mentor
+ * The Career Mentor's "Refresh and review": the Scout reads the job boards and the Applications
+ * Agent your new job emails, the Analyst recomputes the market report, then the Career Mentor
  * reviews with all of it. Returns what changed, one line per step.
  */
 export async function refreshMentor(): Promise<ActionResult<{ lines: string[] }>> {
@@ -106,7 +107,7 @@ export async function runAgentNow(agent: string): Promise<ActionResult> {
   }
 
   if (p.data === "career") {
-    // The Applications Agent on its own: finds this brief's matches (tops up to 10 of each).
+    // The Applications Agent on its own: finds this brief's matches (tops each of the brief's two lists up to 5).
     const res = await runCareerAgent(ctx, slot === "saturday" ? "morning" : slot, { trigger: "run-now", honorPause: false, persist: service() ?? ctx.store });
     const failed = "missing" in res || res.allFailed;
     await audit(ctx.store, { actor: "owner", action: "agent.run-now", target: p.data, detail: `${slot}: ${failed ? "failed" : "succeeded"}`, outcome: failed ? "error" : "success" });
@@ -199,7 +200,9 @@ export async function syncNow(): Promise<ActionResult> {
     assertSessionIsOwner(ctx);
     service = ownerServiceStore();
   }
-  const outcome = await runSync(ctx, "run-now", service);
+  // The same limit as the scheduled sync (Mission Control's maxDuration is 300 for this), with a
+  // deadline so model calls and the watchdog know when the function will be stopped.
+  const outcome = await runSync({ ...ctx, deadline: ctx.deadline ?? Date.now() + SCHEDULED_LIMIT_MS }, "run-now", service);
   await audit(ctx.store, { actor: "owner", action: "agent.sync-now", target: "sync", detail: outcome.status, outcome: outcome.status === "failed" ? "error" : "success" });
   for (const path of ["/", "/mission", "/inbox", "/applications", "/renewals", "/roles", "/connectors"]) revalidatePath(path);
   return outcome.status === "failed" ? { ok: false, error: `Sync failed: ${outcome.detail}` } : { ok: true, message: `Synced: ${outcome.detail}.` };

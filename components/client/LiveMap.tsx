@@ -2,7 +2,8 @@
 
 import { useEffect, useRef, useState, useSyncExternalStore, useTransition } from "react";
 import { syncNow } from "@/app/actions/agents";
-import { AGENTS, agent as profile } from "@/lib/domain/agents";
+import { AGENTS, agent as profile, aiUse } from "@/lib/domain/agents";
+import { AI_USE, KIND_COLOR, KINDS, REACH, TRIGGER } from "@/lib/domain/registry";
 import {
   ago,
   framesFor,
@@ -12,6 +13,7 @@ import {
   MAP_LABELS,
   MAP_NODES,
   MAP_SIZE,
+  MCP_NODE,
   MODEL_NODE,
   node,
   NODE_FACTS,
@@ -37,15 +39,15 @@ import { Icon } from "../Icon";
 
 const STATE_COLOR: Record<NodeState, string> = {
   idle: "var(--c-grey)",
-  running: "var(--c-blue)",
+  running: "var(--c-indigo)",
   ok: "var(--c-green)",
   failed: "var(--c-red)",
-  skipped: "var(--c-orange)",
-  stalled: "var(--c-orange)",
+  skipped: "var(--c-warn)",
+  stalled: "var(--c-warn)",
   paused: "var(--c-grey)",
 };
 const RUN_STATE: Record<LiveRun["status"], NodeState> = { started: "running", succeeded: "ok", failed: "failed", skipped: "skipped", stalled: "stalled" };
-const ACTIVE = "var(--c-blue)";
+const ACTIVE = "var(--c-indigo)";
 
 // ---- drawing ----
 
@@ -71,7 +73,30 @@ const EDGE_PATHS = MAP_EDGES.map((e) => ({ edge: e, d: pathOf(route(e)) }));
 const RELATED = new Map(MAP_NODES.map((n) => [n.id, new Set(related(n.id))]));
 
 /** The AI model's color on the map: a judgment made by the model, not by rules. */
-const AI_COLOR = "var(--c-purple)";
+const AI_COLOR = "var(--c-ai)";
+/** Text in the AI color: its deeper shade, readable on the light map. */
+const AI_INK = "var(--c-ai-ink)";
+/** The Claude connector (MCP) layer's highlight. */
+const CONNECTOR = "var(--c-connector)";
+/** The color each outlined part of the map wears. Parts not listed keep a plain grey line. */
+const GROUP_COLOR: Readonly<Record<string, string>> = {
+  "daily-desk": "var(--c-daily)",
+  "career-desk": "var(--c-career)",
+  acts: "var(--c-career)",
+  quality: "var(--c-qa)",
+  agents: "var(--c-ai)",
+  sources: CONNECTOR,
+  connector: CONNECTOR,
+};
+/** The palette's key under the map, in the order of the sidebar. */
+const PALETTE_KEY: readonly [string, string][] = [
+  ["Daily", "var(--c-daily)"],
+  ["Career", "var(--c-career)"],
+  ["System, connectors, MCP", "var(--c-system)"],
+  ["Data", "var(--c-data)"],
+  ["QA", "var(--c-qa)"],
+  ["AI", "var(--c-ai)"],
+];
 
 export interface MapAi {
   name: string;
@@ -109,12 +134,14 @@ function Box({
   const isAgent = n.kind === "agent" || n.kind === "orchestrator";
   const big = n.kind === "orchestrator";
   const p = n.agent ? profile(n.agent) : null;
-  // Outside Atlas: the sources and the AI model get a dashed border.
-  const outside = n.kind === "source" || n.kind === "model";
+  // Outside Atlas: the sources, the AI model, Claude and Supabase Auth get a dashed border.
+  const outside = n.kind === "source" || n.kind === "model" || n.kind === "client";
   const aiBox = n.kind === "model" || !!p?.ai;
   const tint = aiBox && ai?.on ? AI_COLOR : null;
   const hot = lit || focused;
-  const stroke = hot ? color : n.kind === "model" && ai?.on ? AI_COLOR : state && state !== "idle" && state !== "paused" ? STATE_COLOR[state] : "var(--line-strong)";
+  // Every connector and MCP component wears an orange outline: sources, Claude, Supabase Auth, the MCP server and its data.
+  const connector = n.kind === "source" || n.kind === "client" || n.kind === "connector";
+  const stroke = hot ? color : n.kind === "model" && ai?.on ? AI_COLOR : connector ? CONNECTOR : state && state !== "idle" && state !== "paused" ? STATE_COLOR[state] : "var(--line-strong)";
   const fill = hot ? `color-mix(in oklab, ${color} 9%, var(--surface))` : tint ? `color-mix(in oklab, ${tint} 6%, var(--surface))` : "var(--surface)";
   return (
     <g
@@ -142,13 +169,13 @@ function Box({
         width={n.w}
         height={n.h}
         rx={14}
-        strokeWidth={hot ? 2.5 : 1.5}
+        strokeWidth={hot ? 2.5 : connector ? 2.5 : 1.5}
         strokeDasharray={state === "paused" || outside ? "6 5" : undefined}
         style={{ fill, stroke, transition: "fill 300ms, stroke 300ms" }}
       />
       {n.kind === "model" ? (
         <>
-          <text x={18} y={32} fontSize={18} fontWeight={650} style={{ fill: ai?.on ? AI_COLOR : "var(--ink-3)" }}>
+          <text x={18} y={32} fontSize={18} fontWeight={650} style={{ fill: ai?.on ? AI_INK : "var(--ink-3)" }}>
             ✦ {ai?.name ?? "AI model"}
           </text>
           {ai ? (
@@ -161,8 +188,8 @@ function Box({
                   Falls back to {ai.fast.replace(/^gemini-/, "")}
                 </text>
               )}
-              <text x={18} y={ai.fast ? 112 : 90} fontSize={13} fontWeight={600} style={{ fill: ai.on ? AI_COLOR : "var(--ink-3)" }}>
-                {!ai.on ? "Off: agents use rules" : calls ? `Today: ${calls.used} of ${calls.limit} calls` : "Connected"}
+              <text x={18} y={ai.fast ? 112 : 90} fontSize={13} fontWeight={600} style={{ fill: ai.on ? AI_INK : "var(--ink-3)" }}>
+                {!ai.on ? "Off: bots use rules" : calls ? `Today: ${calls.used} of ${calls.limit} calls` : "Connected"}
               </text>
               <text x={18} y={ai.fast ? 136 : 114} fontSize={12} className="fill-ink-3">
                 {n.sub}
@@ -170,7 +197,7 @@ function Box({
             </>
           ) : (
             <text x={18} y={62} fontSize={13} className="fill-ink-3">
-              Not set up: every agent uses rules
+              Not set up: every bot uses rules
             </text>
           )}
         </>
@@ -189,24 +216,32 @@ function Box({
           <text x={big ? 80 : 63} y={n.h / 2 + (big ? 29 : 26)} fontSize={big ? 12.5 : 11.5} className="fill-ink-3">
             {sub}
           </text>
+          {/* Its kind, in the same hue as everywhere else in Atlas: Workflow, Bot or Agent. */}
+          <g transform={`translate(${big ? n.w - 164 : n.w - 62} ${big ? 10 : 8})`}>
+            <title>{KINDS[p.kind].definition}</title>
+            <rect width={big ? 70 : 46} height={big ? 22 : 18} rx={big ? 11 : 9} style={{ fill: `color-mix(in oklab, ${KIND_COLOR[p.kind]} 13%, var(--surface))`, stroke: `color-mix(in oklab, ${KIND_COLOR[p.kind]} 35%, transparent)` }} strokeWidth={1} />
+            <text x={big ? 35 : 23} y={big ? 15 : 12.5} textAnchor="middle" fontSize={big ? 11.5 : 10} fontWeight={600} style={{ fill: `color-mix(in oklab, ${KIND_COLOR[p.kind]} 48%, var(--ink))` }}>
+              {KINDS[p.kind].label}
+            </text>
+          </g>
           {/* Live status: done, working or idle, at a glance. */}
           {state && <circle cx={n.w - 16} cy={n.h - 16} r={5} className={state === "running" ? "animate-pulse" : ""} style={{ fill: STATE_COLOR[state] }} />}
           {/* The agents whose judgment comes from the AI model. Grey when the model is off: they run on rules. */}
           {p.ai && ai &&
             (big ? (
               <g transform={`translate(${n.w - 84} 10)`}>
-                <title>{ai.on ? `${ai.name}: ${p.ai}` : `AI is off, so this agent runs on rules. With it on: ${p.ai}`}</title>
+                <title>{ai.on ? `${ai.name}: ${p.ai}` : `AI is off, so this bot runs on rules. With it on: ${p.ai}`}</title>
                 <rect width={74} height={22} rx={11} style={{ fill: ai.on ? `color-mix(in oklab, ${AI_COLOR} 18%, var(--surface))` : "var(--surface-2)", stroke: ai.on ? AI_COLOR : "var(--line-strong)" }} strokeWidth={1} />
-                <text x={37} y={15} textAnchor="middle" fontSize={11.5} fontWeight={700} style={{ fill: ai.on ? AI_COLOR : "var(--ink-3)" }}>
+                <text x={37} y={15} textAnchor="middle" fontSize={11.5} fontWeight={700} style={{ fill: ai.on ? AI_INK : "var(--ink-3)" }}>
                   ✦ {ai.name}
                 </text>
               </g>
             ) : (
               // A small mark on the box's corner, so it never covers the agent's name.
               <g transform={`translate(${n.w - 2} 2)`}>
-                <title>{ai.on ? `${ai.name}: ${p.ai}` : `AI is off, so this agent runs on rules. With it on: ${p.ai}`}</title>
+                <title>{ai.on ? `${ai.name}: ${p.ai}` : `AI is off, so this bot runs on rules. With it on: ${p.ai}`}</title>
                 <circle r={10} style={{ fill: ai.on ? AI_COLOR : "var(--surface-2)", stroke: ai.on ? AI_COLOR : "var(--line-strong)" }} strokeWidth={1.5} />
-                <text y={4} textAnchor="middle" fontSize={11} fontWeight={700} style={{ fill: ai.on ? "#fff" : "var(--ink-3)" }}>
+                <text y={4} textAnchor="middle" fontSize={11} fontWeight={700} style={{ fill: ai.on ? "var(--ink)" : "var(--ink-3)" }}>
                   ✦
                 </text>
               </g>
@@ -217,9 +252,31 @@ function Box({
           <text x={16} y={26} fontSize={15} fontWeight={650} className="fill-ink">
             {n.label}
           </text>
-          <text x={16} y={45} fontSize={11.5} className="fill-ink-3">
-            {n.sub}
+          <text x={16} y={45} fontSize={11.5} style={{ fill: state && state !== "idle" ? STATE_COLOR[state] : "var(--ink-3)" }} fontWeight={state && state !== "idle" ? 600 : 400}>
+            {sub}
           </text>
+          {/* What starts a run: an automation (a schedule that fires on its own) or you. */}
+          {n.kind === "trigger" && (
+            <g transform={`translate(${n.w - 92} 8)`}>
+              <title>{n.id === "trigger-you" ? "You press a button; nothing here runs on its own." : "An automation: a schedule (Vercel Cron) that starts a workflow on its own."}</title>
+              <rect width={84} height={18} rx={9} style={{ fill: "var(--surface-2)", stroke: "var(--line-strong)" }} strokeWidth={1} />
+              <text x={42} y={12.5} textAnchor="middle" fontSize={10} fontWeight={600} className="fill-ink-2">
+                {n.id === "trigger-you" ? "Manual" : "Automation"}
+              </text>
+            </g>
+          )}
+          {/* Atlas's agents carry the Agent badge, in the same hue as everywhere else. */}
+          {n.kind === "loop" && (
+            <g transform={`translate(${n.w - 82} 8)`}>
+              <title>{KINDS.agent.definition}</title>
+              <rect width={46} height={18} rx={9} style={{ fill: `color-mix(in oklab, ${KIND_COLOR.agent} 13%, var(--surface))`, stroke: `color-mix(in oklab, ${KIND_COLOR.agent} 35%, transparent)` }} strokeWidth={1} />
+              <text x={23} y={12.5} textAnchor="middle" fontSize={10} fontWeight={600} style={{ fill: `color-mix(in oklab, ${KIND_COLOR.agent} 48%, var(--ink))` }}>
+                {KINDS.agent.label}
+              </text>
+            </g>
+          )}
+          {/* Live status for boxes that have one (the agents, the MCP server): working, done, failed or off. */}
+          {state && <circle cx={n.w - 14} cy={14} r={5} className={state === "running" ? "animate-pulse" : ""} style={{ fill: STATE_COLOR[state] }} />}
         </>
       )}
     </g>
@@ -416,6 +473,15 @@ export function LiveMap({ initial, ai = null }: { initial: LiveSnapshot; /** The
   const canReplay = !!mission && mission.run.status !== "started" && mission.run.steps.length > 0;
 
   const agentLine = (n: MapNode): { state: NodeState | null; line: string; sub: string } => {
+    // Atlas's agents: the latest run of each, found by its task in the activity log.
+    const loop = snap.loops?.[n.id];
+    if (loop) return { state: loop.state, line: "", sub: loop.state === "idle" ? n.sub : loop.state === "running" ? "Working…" : `${STATE_WORD[loop.state]}${loop.at ? ` · ${ago(loop.at, nowMs)}` : ""}` };
+    // The MCP server: whether Claude access is on, and Claude's reads today, from the audit log.
+    if (n.id === MCP_NODE && snap.mcp) {
+      const m = snap.mcp;
+      const sub = !m.on ? "Off in Settings" : m.state === "running" ? "Claude is reading…" : m.calls ? `${m.calls} read${m.calls === 1 ? "" : "s"} today${m.lastAt ? ` · ${ago(m.lastAt, nowMs)}` : ""}` : "On · no reads today";
+      return { state: m.state, line: "", sub };
+    }
     const a = snap.agents.find((x) => x.agent === n.agent);
     if (!a) return { state: null, line: "", sub: n.sub };
     if (frame) return { state: a.state, line: litNodes.has(n.id) ? (frame.actor === a.agent ? "Working…" : "In this step") : STATE_WORD[a.state], sub: n.sub };
@@ -433,6 +499,7 @@ export function LiveMap({ initial, ai = null }: { initial: LiveSnapshot; /** The
       const p = profile(n.agent);
       const judged: [string, string] = p.ai ? (ai?.on ? [`${ai.name} judges`, p.ai] : ["Judgment", ai ? `Rules while AI is off. With it on: ${p.ai}` : `Rules: no AI model is set up. With one: ${p.ai}`]) : ["Judgment", "Rules only"];
       rows.splice(1, 0, judged);
+      rows.unshift(["Kind", `${KINDS[p.kind].label} · ${p.pattern}`], ["Tags", `${AI_USE[aiUse(p)].label} · ${REACH[p.reach].label} · ${TRIGGER[p.trigger].label}`]);
       const a = snap.agents.find((x) => x.agent === n.agent);
       if (a) {
         const when = a.state === "running" || a.state === "idle" ? "" : ` · ${ago(a.at, nowMs)}`;
@@ -440,15 +507,19 @@ export function LiveMap({ initial, ai = null }: { initial: LiveSnapshot; /** The
         rows.push(["Last run", a.state === "idle" ? "No runs yet" : `${STATE_WORD[a.state]}${a.task ? ` · ${a.task}` : ""}${when}${length}`]);
       }
     }
+    if (id === MCP_NODE && snap.mcp) {
+      const m = snap.mcp;
+      rows.unshift(["Claude access", m.on ? "On" : "Off: every request is refused. Turn it on in Settings, Connect Claude"], ["Today", m.calls ? `${m.calls} tool call${m.calls === 1 ? "" : "s"}, ${m.errors} failed${m.lastAt ? `, the last ${ago(m.lastAt, nowMs)}` : ""}` : "No calls yet"]);
+    }
     if (id === MODEL_NODE) {
       const uses = AGENTS.filter((x) => x.ai).map((x) => x.name).join(", ");
       const model: [string, string][] = ai
         ? [
             ["Model", ai.writer ? `${ai.writer}${ai.fast ? `, falling back to ${ai.fast} when it is slow or busy` : ""}` : ai.name],
-            ["Today", !ai.on ? "AI is off: the agents below use their rules" : snap.aiCalls ? `${snap.aiCalls.used} of ${snap.aiCalls.limit} calls` : "Connected"],
+            ["Today", !ai.on ? "AI is off: the bots below use their rules" : snap.aiCalls ? `${snap.aiCalls.used} of ${snap.aiCalls.limit} calls` : "Connected"],
             ["Used by", uses],
           ]
-        : [["Status", "No AI model is set up, so every agent uses its rules"], ["Would judge for", uses]];
+        : [["Status", "No AI model is set up, so every bot uses its rules"], ["Would judge for", uses]];
       rows.unshift(...model);
     }
     return rows;
@@ -542,14 +613,20 @@ export function LiveMap({ initial, ai = null }: { initial: LiveSnapshot; /** The
               {l.text}
             </text>
           ))}
-          {MAP_GROUPS.map((g) => (
-            <g key={g.id}>
-              <rect x={g.x} y={g.y} width={g.w} height={g.h} rx={16} fill="none" strokeWidth={1.2} stroke="var(--line-strong)" />
-              <text x={g.x + 14} y={g.labelBottom ? g.y + g.h - 10 : g.y + 17} fontSize={11.5} letterSpacing="0.12em" className="fill-ink-3 font-mono uppercase">
-                {g.label}
-              </text>
-            </g>
-          ))}
+          {MAP_GROUPS.map((g) => {
+            // Each part of the map wears its meaning's color (owner's palette, 24 Nov 2026): the desks
+            // their desk's, QA red, the AI agents pink, connectors and MCP yellow. Outline only.
+            const hue = GROUP_COLOR[g.id];
+            const loud = g.id === "connector" || g.id === "sources";
+            return (
+              <g key={g.id}>
+                <rect x={g.x} y={g.y} width={g.w} height={g.h} rx={16} fill="none" strokeWidth={hue ? (loud ? 3 : 2) : 1.2} style={{ stroke: hue ?? "var(--line-strong)" }} />
+                <text x={g.x + 14} y={g.labelBottom ? g.y + g.h - 10 : g.y + 17} fontSize={11.5} letterSpacing="0.12em" fontWeight={hue ? 600 : undefined} className="font-mono uppercase" style={{ fill: hue ? `color-mix(in oklab, ${hue} 50%, var(--ink))` : "var(--ink-3)" }}>
+                  {g.label}
+                </text>
+              </g>
+            );
+          })}
           {/* Quiet lines first, then the lit and focused ones on top. */}
           {[...EDGE_PATHS]
             .sort((x, y) => Number(litEdges.has(x.edge.id) || focus === x.edge.from || focus === x.edge.to) - Number(litEdges.has(y.edge.id) || focus === y.edge.from || focus === y.edge.to))
@@ -602,10 +679,20 @@ export function LiveMap({ initial, ai = null }: { initial: LiveSnapshot; /** The
         </svg>
       </div>
 
+      {/* The palette: what each color means, everywhere in Atlas. */}
+      <div className="-mt-1 flex flex-wrap items-center gap-x-4 gap-y-1.5 px-1 text-xs text-ink-2" aria-label="What the colors mean">
+        {PALETTE_KEY.map(([label, color]) => (
+          <span key={label} className="inline-flex items-center gap-1.5">
+            <span className="inline-block h-3 w-4 rounded-[4px] border-2" style={{ borderColor: color }} />
+            {label}
+          </span>
+        ))}
+      </div>
+
       {/* The key, then what the selected box does. */}
-      <div className="-mt-1 flex flex-wrap items-center gap-x-4 gap-y-1.5 px-1 text-xs text-ink-3">
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 px-1 text-xs text-ink-3">
         <span className="inline-flex items-center gap-1.5">
-          <span className="inline-grid h-4 w-4 place-items-center rounded-full text-[10px] font-bold" style={{ background: ai?.on ? AI_COLOR : "var(--surface-2)", color: ai?.on ? "#fff" : undefined }}>
+          <span className="inline-grid h-4 w-4 place-items-center rounded-full text-[10px] font-bold" style={{ background: ai?.on ? AI_COLOR : "var(--surface-2)", color: ai?.on ? "var(--ink)" : undefined }}>
             ✦
           </span>
           {ai ? (ai.on ? `Judged by ${ai.name}` : "AI is off: rules for now") : "No AI model set up"}
@@ -692,7 +779,7 @@ export function LiveMap({ initial, ai = null }: { initial: LiveSnapshot; /** The
                   </p>
                   <p className="mt-0.5 text-sm text-ink-2">
                     {mission.run.durationMs !== null ? `Took ${took(mission.run.durationMs)}. ` : ""}
-                    {mission.members.length} agent{mission.members.length === 1 ? "" : "s"} reported.
+                    {mission.members.length} bot{mission.members.length === 1 ? "" : "s"} reported.
                     {mission.run.detail ? ` ${mission.run.detail}.` : ""}
                   </p>
                 </>

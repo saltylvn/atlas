@@ -7,10 +7,10 @@ import { Icon } from "./Icon";
 import { CardHeader, Empty, Pill } from "./ui";
 
 const KIND_COLOR: Record<DoNextKind, string> = {
-  "thank-you": "var(--c-pink)",
-  prep: "var(--c-purple)",
+  "thank-you": "var(--c-indigo)",
+  prep: "var(--c-indigo)",
   due: "var(--c-red)",
-  "follow-up": "var(--c-blue)",
+  "follow-up": "var(--c-career)",
   apply: "var(--c-green)",
   "close-out": "var(--c-grey)",
 };

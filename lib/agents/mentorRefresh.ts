@@ -12,14 +12,14 @@ import { runMentor, type MentorResult } from "./mentor";
 import { runScout, type ScoutResult } from "./scout";
 import { tracer } from "./trace";
 
-// "Refresh and review", from the Mentor's card: the Career desk brings its data up to date,
-// then the Mentor reviews with it. Each agent logs its own run as usual; this run's trace
+// "Refresh and review", from the Career Mentor's card: the Career desk brings its data up to date,
+// then the Career Mentor reviews with it. Each agent logs its own run as usual; this run's trace
 // shows the order and what each step found (counts only).
 //
 //   1. at once: the Scout reads the job boards; the Applications Agent reads new job
 //      emails and updates the board
 //   2. the Analyst recomputes the market report from what the Scout just recorded
-//   3. the Mentor reviews, and may update today's insights whose numbers moved
+//   3. the Career Mentor reviews, and may update today's insights whose numbers moved
 
 export const MENTOR_REFRESH_TASK = "Refresh and review";
 
@@ -65,16 +65,16 @@ export async function runMentorRefresh(ctx: Context, persist: Store): Promise<Re
     );
     lines.push("missing" in analyst ? missingLine("Analyst", analyst) : `Analyst: ${analyst.report.headline}`);
 
-    const mentor = await t.step("Ask the Mentor to review with the fresh data", () => runMentor(ctx, slotAt(ctx.time), { trigger: "run-now", honorPause: false, persist, refresh: true }), (r) =>
+    const mentor = await t.step("Ask the Career Mentor to review with the fresh data", () => runMentor(ctx, slotAt(ctx.time), { trigger: "run-now", honorPause: false, persist, refresh: true }), (r) =>
       "missing" in r ? `${r.missing}: ${r.why}` : `${r.insights.length} insight${r.insights.length === 1 ? "" : "s"}, ${r.updated} updated`,
     );
-    if ("missing" in mentor) lines.push(missingLine("Mentor", mentor));
+    if ("missing" in mentor) lines.push(missingLine("Career Mentor", mentor));
     else {
       const fresh = mentor.insights.length - mentor.updated;
       lines.push(
         mentor.insights.length
-          ? `Mentor: ${[fresh > 0 && `${fresh} new insight${fresh === 1 ? "" : "s"}`, mentor.updated > 0 && `${mentor.updated} updated with the new numbers`].filter(Boolean).join(", ")}.`
-          : "Mentor: nothing has changed enough to say more; your open insights still stand.",
+          ? `Career Mentor: ${[fresh > 0 && `${fresh} new insight${fresh === 1 ? "" : "s"}`, mentor.updated > 0 && `${mentor.updated} updated with the new numbers`].filter(Boolean).join(", ")}.`
+          : "Career Mentor: nothing has changed enough to say more; your open insights still stand.",
       );
     }
     await logRun(ctx, { runId, agent, task: MENTOR_REFRESH_TASK, status: "succeeded", trigger: "run-now", detail: lines.map((l) => l.split(":")[0]).join(", ") + " refreshed", ...NO_MODEL, ...t.finish() });

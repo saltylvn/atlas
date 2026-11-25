@@ -12,7 +12,7 @@ import { ListSkeleton } from "@/components/Skeleton";
 export const metadata = { title: "News" };
 
 const LABEL: Record<NewsTopic, string> = { ai: "AI", tech: "Tech", politics: "Politics", world: "World" };
-const COLOR: Record<NewsTopic, string> = { ai: "var(--c-purple)", tech: "var(--c-blue)", politics: "var(--c-orange)", world: "var(--c-teal)" };
+const COLOR: Record<NewsTopic, string> = { ai: "var(--c-ai)", tech: "var(--c-blue)", politics: "var(--c-brown)", world: "var(--c-slate)" };
 
 export default async function NewsPage({ searchParams }: { searchParams: Promise<{ topic?: string }> }) {
   const { topic: raw } = await searchParams;

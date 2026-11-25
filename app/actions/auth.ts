@@ -7,6 +7,7 @@ import { env, mode } from "@/lib/env";
 import { rateLimit } from "@/lib/security/rateLimit";
 import { decide, isPlainOrigin, type Claims } from "@/lib/supabase/gate";
 import { createUserClient } from "@/lib/supabase/server";
+import { afterSignIn } from "@/lib/mcp/consentReturn";
 
 async function clientIp(): Promise<string> {
   const h = await headers();
@@ -68,7 +69,8 @@ export async function verifyTotp(factorId: string, code: string): Promise<{ ok: 
   if (!(await isOwnerSession(db))) return { ok: false, error: "Sign in first." };
   const { error } = await db.auth.mfa.challengeAndVerify({ factorId: p.data.factorId, code: p.data.code });
   if (error) return { ok: false, error: "That code didn't match. Check your authenticator's clock." };
-  redirect("/");
+  // Back to Claude's consent request when sign-in interrupted one, else home.
+  redirect(await afterSignIn(true));
 }
 
 export async function signOutToLogin(): Promise<void> {

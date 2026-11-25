@@ -34,3 +34,14 @@ export function assertSessionIsOwner(ctx: Context): void {
     throw new Error("This session is not the configured owner");
   }
 }
+
+/**
+ * The store that may create and move apply rows and keep resume files. Live, that is the
+ * secret-key store, used only after the session is confirmed to be the owner's; in the demo
+ * it is the in-memory store.
+ */
+export function ownerWriteStore(ctx: Context): Store {
+  if (ctx.mode !== "live") return ctx.store;
+  assertSessionIsOwner(ctx);
+  return ownerServiceStore();
+}

@@ -86,7 +86,7 @@ describe("Reading a bill email", () => {
   });
 });
 
-describe("Finance Agent report", () => {
+describe("Finance bot report", () => {
   const items = [
     mail("Harborview", "billing@email.harborview.com", "Your payment of $142.18 is due Nov 20"),
     mail("Lakeshore Financial", "noreply@lakeshorefinancial.com", "Payment failed: action required"),

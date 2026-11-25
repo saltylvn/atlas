@@ -4,6 +4,7 @@ import type { Store } from "@/lib/data/store";
 import { addDays, localDate } from "@/lib/domain/dates";
 import { readResumeTexts, notionConfigured } from "@/lib/integrations/notion";
 import { embedText, planIndex, toChunks, toDocuments, type KnowledgeSnapshot, type KnowledgeSource } from "@/lib/domain/knowledge";
+import { inYourLists } from "@/lib/domain/people";
 
 // Ask Atlas: keeping the index current.
 //
@@ -51,10 +52,22 @@ async function snapshot(store: Store, today: string, notionResumesId: string | u
   await Promise.all([
     read("brief", "briefs", () => store.briefs.search({ limit: 60 })),
     read("email", "inbox", () => store.inbox.list()),
-    read("person", "contacts", () => store.contacts.list()),
+    // Phonebook imports you have not placed stay out of search and embeddings.
+    read("person", "contacts", async () => (await store.contacts.list()).filter(inYourLists)),
     read("task", "tasks", () => store.tasks.list()),
     read("goal", "goals", () => store.goals.list()),
-    read("project", "projects", () => store.projects.list()),
+    // Two tables make the project passages: your project list and your GitHub projects.
+    // Only when both read is the source complete; otherwise its passages are left as they are.
+    (async () => {
+      try {
+        const [projects, portfolio] = await Promise.all([store.projects.list(), store.portfolio.list()]);
+        data.projects = projects;
+        data.portfolio = portfolio;
+        loaded.add("project");
+      } catch {
+        console.warn("[knowledge] could not read", "project");
+      }
+    })(),
     read("application", "applications", () => store.applications.list()),
     read("job", "jobMatches", () => store.jobMatches.since(addDays(today, -JOB_DAYS))),
     read("renewal", "renewals", () => store.renewals.list()),

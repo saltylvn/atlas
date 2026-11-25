@@ -60,6 +60,12 @@ export function daysBetween(a: LocalDate, b: LocalDate): number {
 const WEEKDAY_NAMES = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
+/** "3h ago", "2d ago": how long before `at` an instant was. Both are ISO instants. */
+export function ago(iso: string, at: string): string {
+  const h = Math.max(0, Math.round((Date.parse(at) - Date.parse(iso)) / 3_600_000));
+  return h < 24 ? `${h}h ago` : `${Math.round(h / 24)}d ago`;
+}
+
 export function weekdayName(day: LocalDate): string {
   return WEEKDAY_NAMES[weekdayIndex(day)] ?? "";
 }

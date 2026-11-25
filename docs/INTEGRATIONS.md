@@ -4,9 +4,9 @@ Integrations are read-only, with two owner-clicked exceptions: archiving an emai
 
 ## Applications from email (the Career Agent)
 
-Atlas is the application tracker; there is no separate job-hunt system. Before each weekday brief the Email Agent syncs Gmail, and the Career Agent reads the job emails it tagged (`lib/domain/applications.ts`, `trackFromEmail`): a "thank you for applying" email logs the application as Applied (company and role read from the subject and sender), and later emails from that company move it forward (a reply to Replied, an interview invite to Interview, a rejection to Rejected). An interview invite or rejection from a company with no application yet also logs one; recruiter outreach never does. Statuses only move forward, and nothing is logged twice (`email:<message id>`).
+Atlas is the application tracker; there is no separate job-hunt system. Before each weekday brief the Email Agent syncs Gmail, and the Career Agent reads the job emails it tagged (`lib/domain/applications.ts`, `trackFromEmail`): a "thank you for applying" email logs the application as Applied (company and role read from the subject and sender), and later emails from that company move it forward (a reply to Replied, an interview invite to Interview, a rejection to Rejected). An interview invite or rejection from a company with no application yet also logs one; recruiter outreach never does. Statuses only move forward, and nothing is logged twice (`email:<message id>`). With more than one application at a company, the email is matched by its Gmail thread, then by the role it names, then by the company's one open application (`matchMail`); one that cannot be told apart waits in the **Needs you** lane on the Pipeline page for you to place. Every job email also goes on its application's timeline ([design-pipeline.md](design-pipeline.md)).
 
-**Catch-up:** Applications > **Find past applications in Gmail** searches All Mail for the last 90 days (read-only `X-GM-RAW` query for confirmation, status and interview subjects and the common hiring systems, headers only) and logs what it finds. Interviews come from Google Calendar: events titled as an interview, or naming a company with an open application, are linked to that application (`lib/domain/careerSnapshot.ts`).
+**Catch-up:** Applications > **Find past applications in Gmail** searches All Mail for the last 90 days (read-only `X-GM-RAW` query for confirmation, status and interview subjects and the common hiring systems, headers only) and logs what it finds. An email on a timeline is there once, so the tracker places one only after its text has been read (`kindToPlace`): an unread one waits for the next run. The catch-up's emails that are no longer in the inbox are never read, so those go by their subject, and a subject that says "interview" is logged as a reply, never as an invite. Interviews come from Google Calendar: events titled as an interview, or naming a company with an open application, are linked to that application (`lib/domain/careerSnapshot.ts`).
 
 ## Gmail (read-only, except Archive)
 
@@ -52,7 +52,7 @@ Atlas reads one thing from Notion: the **Resumes** database in Atlas HQ. Each ro
 
 ## Figma (read-only) and the resume sync
 
-The resumes are designed in Figma and read by Atlas from Notion. The **resume sync** keeps the two in step: every evening about 6 PM (Monday to Saturday, just before the Mentor's evening review) the Applications Agent reads each resume's Figma frame and, when its text changed, mirrors the text into that role's page in Notion and indexes it for Ask Atlas. **Sync now** on Target roles runs it on demand.
+The resumes are designed in Figma and read by Atlas from Notion. The **resume sync** keeps the two in step: every Monday about 6 PM (weekly, because Figma's free plan allows only a few file reads a month; just before the Mentor's evening review) the Applications Agent reads each resume's Figma frame and, when its text changed, mirrors the text into that role's page in Notion and indexes it for Ask Atlas. **Sync now** on Target roles runs it on demand.
 
 - **Which frame:** the first Figma link with a `node-id` in the row's `Notes` in the Resumes database. A row with no link is skipped and listed.
 - **How the frame is read:** by where the text sits and how large it is, not by layer names, so renaming or regrouping layers does not break it. The largest text is the name; text clearly larger than the body is a section title; slightly larger is an entry title; indented body text is a bullet. Hidden layers are skipped. The Contact section, and any line holding an email address, phone number or profile link, is left out.
@@ -77,6 +77,25 @@ Once a day the Scout reads your own repositories and records what each is built 
 - **Setup:** in Vercel add `GITHUB_USER` (your login). That alone reads public repositories. To include private ones add `GITHUB_TOKEN`: a fine-grained personal access token limited to the repositories you choose, with **Contents: Read-only** and **Metadata: Read-only**.
 - **Security:** GET requests only, to `api.github.com` through `safeFetch`; the login and repository names are pattern-checked before they reach a URL. The token is tainted against reaching the browser and never logged; errors shown are fixed text. Code: `lib/integrations/github.ts`, `lib/domain/portfolio.ts`, `lib/agents/portfolio.ts`.
 
+## Firecrawl (read-only): the postings of jobs you approved
+
+A feed gives Atlas a job's title and its first few lines. When you give a job a 👍, the Applications Agent reads the full posting through Firecrawl and adds what it asks for to the apply kit, so you see it before you decide to apply.
+
+- **What is read:** the posting page of a job you gave a 👍, once. Never LinkedIn, Indeed, Glassdoor, Wellfound, YC Work at a Startup, Dice, Welcome to the Jungle or Silicon Slopes (their terms forbid automated reading), and never a page that is not public https. Firecrawl applies each site's robots.txt.
+- **What is kept:** a few lines in the kit: the experience asked for ("3–5 years"), the skills it names (from Atlas's own skill list), the pay it states, whether it is remote, hybrid or on-site, and what to watch for (a security clearance, citizenship, heavy travel, a required computer science degree, more experience than a junior to mid level role asks for). The posting's own text is not stored.
+- **What goes to a model:** nothing from the posting. "Draft with AI" in a kit is given the skill names the rules found, so it searches and writes against what the job really asks for.
+- **When:** right after the 👍 (in the background, so the thumb stays instant), at each 2-hour sync for anything that was missed, and from **Read postings now** in the Apply Queue. A page that will not read is marked in its kit and not tried again.
+- **Budget:** Firecrawl's free plan is 1,000 pages a month with no card. Atlas stops at 900 a month, 40 a day and 5 a run, and counts in Settings (`firecrawlUsage`). Connectors shows the month's count.
+- **Setup:** create a free Firecrawl account, copy the API key, add `FIRECRAWL_API_KEY` in Vercel and redeploy. Without it everything else works and the queue says how to turn it on.
+- **Security:** one host, `api.firecrawl.dev`, through `safeFetch`. The request asks for the page's main text only, with `proxy: "basic"`: Firecrawl's default would retry a blocked page through proxies built to get past bot protection, and Atlas leaves such a page unread instead. The key is tainted against reaching the browser and never logged; errors shown are fixed text. Each run is logged, traced (site names only) and audited. Code: `lib/integrations/firecrawl.ts`, `lib/domain/postingFacts.ts`, `lib/agents/postingReader.ts`.
+
+## Browserbase (removed 23 Nov 2026)
+
+Atlas no longer applies for you, so the Apply Agent's cloud browser is gone: its adapter, its
+host on the allowlist (`api.browserbase.com`) and its keys (`BROWSERBASE_API_KEY`,
+`BROWSERBASE_PROJECT_ID`). Delete the keys in Vercel. The `apply_runs` table and the private
+`resumes` bucket stay, read by nothing, as the record of what it sent.
+
 ## The Mentor's role proposals, and the second Notion write
 
 Each morning the Mentor checks whether your target roles are in the right order (see [CAREER-DESK.md](CAREER-DESK.md)). A proposal changes nothing. When you approve one on Target roles:
@@ -95,8 +114,9 @@ Nothing else in Notion is touched, and no row is ever deleted. Code: `app/action
 | Weather | api.open-meteo.com | 30 min |
 | News | news.google.com (Reuters, AP and Anthropic, which publish no RSS), techcrunch.com, www.theverge.com, feeds.arstechnica.com, thehill.com, moxie.foxnews.com, www.washingtonexaminer.com, thedispatch.com, feeds.a.dj.com | 30 min |
 | Job boards | boards-api.greenhouse.io, api.lever.co, api.ashbyhq.com | 60 min |
-| Job feeds (Career Agent) | remoteok.com (link back to each listing, as its API terms ask), weworkremotely.com (category RSS), hn.algolia.com (Hacker News hiring and freelancer threads) | 30-60 min |
+| Job feeds (Career Agent) | remoteok.com (link back to each listing, as its API terms ask), weworkremotely.com (category RSS), hn.algolia.com (the Hacker News "Who is hiring?" thread) | 30-60 min |
 | Google (authenticated) | oauth2.googleapis.com, gmail.googleapis.com | never cached |
+| Firecrawl (authenticated) | api.firecrawl.dev (the postings of jobs you approved; see above) | never cached by Atlas |
 
 Adding a source means adding its host to `ALLOWED_HOSTS` in `lib/security/safeFetch.ts`.
 

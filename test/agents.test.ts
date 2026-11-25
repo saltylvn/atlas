@@ -202,17 +202,17 @@ describe("Chief of Staff report", () => {
   it("says so in the brief when a specialist is paused or fails", () => {
     const noMail = assembleReport(input({ email: { missing: "failed", why: "timeout" } }));
     expect(noMail.email).toBeNull();
-    expect(noMail.errors).toContain("Email Agent failed: timeout");
+    expect(noMail.errors).toContain("Email bot failed: timeout");
     const quiet = assembleReport(input({ news: { missing: "skipped", why: "paused in Mission Control" } }));
     expect(quiet.news).toEqual([]);
-    expect(quiet.errors.join(" ")).toContain("News Agent skipped (paused in Mission Control)");
+    expect(quiet.errors.join(" ")).toContain("News bot skipped (paused in Mission Control)");
     const paused = assembleReport(input({ calendar: { missing: "skipped", why: "paused in Mission Control" } }));
     expect(paused.calendar).toBeNull();
-    expect(paused.errors.join(" ")).toContain("Calendar Agent skipped (paused in Mission Control)");
+    expect(paused.errors.join(" ")).toContain("Calendar bot skipped (paused in Mission Control)");
     const failed = assembleReport(input({ calendar: { missing: "failed", why: "timeout" } }));
-    expect(failed.reports.find((x) => x.agent === "calendar")?.errors).toEqual(["Calendar Agent failed: timeout"]);
+    expect(failed.reports.find((x) => x.agent === "calendar")?.errors).toEqual(["Calendar bot failed: timeout"]);
   });
-  it("carries the Finance Agent's section on weekdays and says so when it fails", () => {
+  it("carries the Finance bot's section on weekdays and says so when it fails", () => {
     const fin = financeAgentReport({
       today: MON,
       items: [{ ...mail(9, "fyi"), fromName: "Chase", fromEmail: "alerts@chase.com", subject: "Payment past due" }],
@@ -226,11 +226,11 @@ describe("Chief of Staff report", () => {
     expect(searchText(r)).toContain("Payment past due");
     const failed = assembleReport(input({ finance: { missing: "failed", why: "timeout" } }));
     expect(failed.finance).toBeNull();
-    expect(failed.errors).toContain("Finance Agent failed: timeout");
+    expect(failed.errors).toContain("Finance bot failed: timeout");
     const sat = assembleReport(input({ slot: "saturday", forDate: SAT, calendar: cal({ slot: "saturday", forDate: SAT, aheadUntil: SUN }), news: nws({ slot: "saturday" }), finance: fin }));
     expect(sat.finance).toBeNull();
   });
-  it("routes each interview to the Career Agent for prep notes", () => {
+  it("routes each interview to the Applications bot for prep notes", () => {
     const r = assembleReport(
       input({
         calendar: cal({

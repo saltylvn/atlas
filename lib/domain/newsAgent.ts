@@ -69,21 +69,58 @@ const STOP = new Set(
 );
 
 /** Significant words of a headline, for matching the same story across outlets. */
+/**
+ * Different words outlets use for the same thing, folded to one before comparing (QA review of
+ * 22 Nov 2026: "Fed holds interest rates steady" and "Federal Reserve leaves rates unchanged" were
+ * counted as two stories all week).
+ */
+const ALIASES: readonly [RegExp, string][] = [
+  [/\bfederal reserve\b/gi, "Fed"],
+  [/\b(holds?|keeps?|leaves?|maintains?)\s+(interest\s+)?rates?\s+(steady|unchanged|on hold|flat)\b/gi, "rates unchanged"],
+  [/\b(holds?|keeps?|leaves?)\s+(interest\s+)?rates?\b/gi, "rates"],
+  [/\bexecutive order\b/gi, "order"],
+];
+/** Two-letter acronyms worth keeping as key words ("AI safety"); other two-letter words are dropped. */
+const ACRONYMS = new Set(["AI", "EU", "UK", "UN", "US", "EV", "VR", "AR"]);
+
+/** A headline's first word, when it names who the story is about (capitalized, not a common opener). */
+const leadOf = (title: string): string | null => {
+  const w = /^\s*([A-Z][A-Za-z0-9&.-]+)/.exec(title)?.[1];
+  return w && !LEAD_STOP.has(w.toLowerCase()) ? w.toLowerCase().replace(/[’']s$/, "") : null;
+};
+const LEAD_STOP = new Set(["the", "a", "an", "how", "why", "what", "when", "who", "new", "breaking", "report", "live", "watch", "opinion", "analysis", "exclusive", "update"]);
+
 export function keywords(title: string): Set<string> {
-  return new Set(
-    title
-      .toLowerCase()
-      .replace(/[’']s\b/g, "")
-      .split(/[^a-z0-9]+/)
-      .filter((w) => w.length >= 3 && !STOP.has(w)),
-  );
+  let t = title;
+  for (const [re, to] of ALIASES) t = t.replace(re, to);
+  const acronyms = (t.match(/\b[A-Z]{2}\b/g) ?? []).filter((w) => ACRONYMS.has(w)).map((w) => w.toLowerCase());
+  const words = t
+    .toLowerCase()
+    .replace(/[’']s\b/g, "")
+    .split(/[^a-z0-9]+/)
+    .filter((w) => w.length >= 3 && !STOP.has(w));
+  const set = new Set([...words, ...acronyms]);
+  // Kept on the set (not a key word): the headline's lead, for the template check in sameStory.
+  const lead = leadOf(t);
+  if (lead) Object.defineProperty(set, "lead", { value: lead, enumerable: false });
+  return set;
 }
 
-/** Two headlines describe the same story when they share most of the shorter one's key words. */
+/**
+ * Two headlines describe the same story when they share most of the shorter one's key words.
+ * Except a "template" pair: near-identical headlines whose lead names a different subject that the
+ * other never mentions ("Microsoft earnings beat expectations on cloud growth" / "Amazon earnings
+ * beat ..."): those are two companies' stories, not one.
+ */
 export function sameStory(a: Set<string>, b: Set<string>): boolean {
   let shared = 0;
   for (const w of a) if (b.has(w)) shared++;
-  return shared >= 3 && shared / Math.min(a.size, b.size) >= 0.5;
+  const ratio = shared / Math.min(a.size, b.size);
+  if (shared < 3 || ratio < 0.5) return false;
+  const la = (a as Set<string> & { lead?: string }).lead;
+  const lb = (b as Set<string> & { lead?: string }).lead;
+  if (ratio >= 0.75 && la && lb && la !== lb && !b.has(la) && !a.has(lb)) return false;
+  return true;
 }
 
 interface Cluster {

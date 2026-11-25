@@ -1,9 +1,7 @@
 import Link from "next/link";
 import { getContext } from "@/lib/context";
-import { AGENTS } from "@/lib/domain/agents";
 import { AppMark } from "@/components/AppMark";
-import { SideNav, TabBar } from "@/components/Nav";
-import { Avatar } from "@/components/ui";
+import { DeskStripe, SideNav, TabBar } from "@/components/Nav";
 import { Icon } from "@/components/Icon";
 import { QuickCapture } from "@/components/client/QuickCapture";
 import { ServiceWorker } from "@/components/client/ServiceWorker";
@@ -21,17 +19,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
           <span className="h-display text-lg font-semibold">Atlas</span>
         </Link>
         <SideNav />
-        <div className="mt-auto rounded-lg border border-line bg-canvas p-3">
-          <p className="eyebrow mb-2">Your team</p>
-          <div className="flex -space-x-2">
-            {AGENTS.map((a) => (
-              <span key={a.id} title={`${a.name} · ${a.role}`} className="rounded-full ring-2 ring-canvas">
-                <Avatar initials={a.initials} color={a.color} size={30} />
-              </span>
-            ))}
-          </div>
-          <p className="mt-2 text-xs text-ink-2">{AGENTS.length} agents. They draft; you decide.</p>
-        </div>
+        {/* Your team lives under System (/team): no box here, so the navigation keeps the room. */}
       </aside>
 
       <div className="min-w-0">
@@ -63,7 +51,10 @@ export default async function AppLayout({ children }: { children: React.ReactNod
           </div>
         )}
 
-        <main className="mx-auto w-full max-w-[1240px] px-4 pb-28 pt-5 md:px-8 md:pb-12 md:pt-8">{children}</main>
+        <main className="mx-auto w-full max-w-[1240px] px-4 pb-28 pt-5 md:px-8 md:pb-12 md:pt-8">
+          <DeskStripe />
+          {children}
+        </main>
       </div>
       <TabBar />
       <QuickCapture today={ctx.today} tomorrow={addDays(ctx.today, 1)} />

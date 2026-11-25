@@ -13,13 +13,15 @@
 // Run details and step notes (which can name a company or a sender) are included only
 // when asked for, so a screen left on a wall shows nothing personal by default.
 
-import { agent as profile } from "./agents";
+import { agent as profile, spokenName } from "./agents";
 import { SLOT_LABEL, SYNC_TASK } from "./briefSchedule";
+import { LOOP_AGENTS } from "./registry";
 import type { AgentId, AgentRunEvent, RunStatus, TraceStep } from "./types";
 
 // ---- the map ----
 
-export type NodeKind = "trigger" | "orchestrator" | "agent" | "model" | "source" | "output";
+/** "client" sits outside Atlas and talks to it (Claude, Supabase Auth); "connector" is Atlas's MCP layer. */
+export type NodeKind = "trigger" | "orchestrator" | "agent" | "model" | "source" | "output" | "client" | "connector" | "loop";
 
 export interface MapNode {
   id: string;
@@ -35,7 +37,7 @@ export interface MapNode {
   agent?: AgentId;
 }
 
-export type EdgeKind = "trigger" | "ask" | "read" | "handoff" | "judge" | "deliver";
+export type EdgeKind = "trigger" | "ask" | "read" | "handoff" | "judge" | "deliver" | "connect";
 
 export interface MapEdge {
   /** "from>to". Work or data moves from `from` to `to`. */
@@ -46,14 +48,16 @@ export interface MapEdge {
   label?: string;
 }
 
-export const MAP_SIZE = { w: 1320, h: 980 } as const;
+export const MAP_SIZE = { w: 1320, h: 1232 } as const;
 
 const COS = "chief-of-staff";
 /** The box for the AI model the marked agents use for judgment (Gemini or Claude). */
 export const MODEL_NODE = "ai-model";
+/** The box for Atlas's MCP server, which Claude reads through. */
+export const MCP_NODE = "mcp";
 const box = (id: string, kind: NodeKind, label: string, sub: string, x: number, y: number, w: number, h: number, agentId?: AgentId): MapNode => ({ id, kind, label, sub, x, y, w, h, ...(agentId ? { agent: agentId } : {}) });
 /** Each specialist's job in a few words, short enough to fit its box. */
-const JOB: Record<Exclude<AgentId, "chief-of-staff">, string> = { calendar: "Today, the week", news: "9 stories", finance: "Bills, deals", email: "Inbox, declutter", career: "Apply kits, answers", scout: "Postings, GitHub", analyst: "Market report", mentor: "Roles, insights", qa: "Weekly review of every agent" };
+const JOB: Record<Exclude<AgentId, "chief-of-staff">, string> = { calendar: "Today, the week", news: "9 stories", finance: "Bills, deals", email: "Inbox, declutter", career: "Queue, kits, 5 agents", scout: "Postings, GitHub", analyst: "Market, funnel, gaps", mentor: "Insights, proof project", qa: "Weekly review of every bot", apply: "Answers forms; you submit" };
 
 // The two desks sit side by side, each a 2 by 2 grid. Between a desk's columns runs a
 // corridor, and between its rows a lane, so lines reach the back row without crossing a box.
@@ -64,7 +68,7 @@ const DESK = {
   career: { x: 680, cols: [827, 1129] as const, corridor: 978 },
 } as const;
 const specialist = (id: Exclude<AgentId, "chief-of-staff">, desk: keyof typeof DESK, col: 0 | 1, row: 0 | 1): MapNode =>
-  box(id, "agent", profile(id).name.replace(/ Agent$/, ""), JOB[id], DESK[desk].cols[col], ROW[row], AGENT.w, AGENT.h, id);
+  box(id, "agent", profile(id).name, JOB[id], DESK[desk].cols[col], ROW[row], AGENT.w, AGENT.h, id);
 
 /** A labeled outline around boxes that work as one group. Drawn behind the boxes; not a node. */
 export interface MapGroup {
@@ -81,13 +85,19 @@ export const MAP_GROUPS: readonly MapGroup[] = [
   { id: "daily-desk", label: "Daily desk", x: DESK.daily.x, y: 410, w: 596, h: 267 },
   { id: "career-desk", label: "Career desk", x: DESK.career.x, y: 410, w: 596, h: 267 },
   { id: "sources", label: "Sources · outside Atlas", x: 40, y: 712, w: 1236, h: 134, labelBottom: true },
-  // The QA Agent sits apart: it reads the activity log every agent writes, and reports to you.
-  { id: "quality", label: "Quality · reviews the whole team every Sunday", x: 40, y: 868, w: 1236, h: 98, labelBottom: true },
+  // Two agents sit apart. The QA Agent reads the activity log every agent writes, and reports to you.
+  { id: "quality", label: "Quality · reviews the team every Sunday", x: 40, y: 868, w: 596, h: 98, labelBottom: true },
+  // The Apply Agent answers forms for Atlas Autofill, on your press; you submit (since 23 Nov 2026 it never applies itself).
+  { id: "acts", label: "Answers forms for Autofill · you submit", x: 680, y: 868, w: 596, h: 98, labelBottom: true },
+  // Atlas's agents (registry.ts LOOP_AGENTS): the model picks its own tools in a loop. They run under Applications.
+  { id: "agents", label: "AI agents · pick their own tools, in a loop · the night shift runs the Researcher, Tailor and Nudger while you sleep, and the Planner plans your week on Sunday", x: 40, y: 990, w: 1236, h: 104, labelBottom: true },
+  // Claude reads Atlas through its MCP connector (Step 4, docs/MCP-BUILD.md): read-only, signed in through Supabase Auth.
+  { id: "connector", label: "Claude connector (MCP) · read-only · you approve it once", x: 40, y: 1112, w: 1236, h: 104, labelBottom: true },
 ];
 
 /** Quiet labels over the parts of the map that have no outline. */
 export const MAP_LABELS: readonly { text: string; x: number; y: number }[] = [
-  { text: "Triggers", x: 55, y: 28 },
+  { text: "Automations and you · what starts a workflow", x: 55, y: 28 },
   { text: "Delivers to you", x: 40, y: 160 },
   { text: "AI model", x: 950, y: 157 },
 ];
@@ -99,22 +109,22 @@ export const MAP_NODES: readonly MapNode[] = [
   // What starts a run.
   box("trigger-sync", "trigger", "2-hour sync", "Mon to Sat, 6 AM to 4 PM", 195, 70, 280, 64),
   box("trigger-brief", "trigger", "Brief schedule", "9:00 AM and 2:00 PM", 505, 70, 280, 64),
-  box("trigger-evening", "trigger", "Evening run", "6 PM resume sync, Mentor", 815, 70, 280, 64),
+  box("trigger-evening", "trigger", "Evening run", "6 PM resume sync, Career Mentor", 815, 70, 280, 64),
   box("trigger-you", "trigger", "You", "Sync now, Run now", 1125, 70, 280, 64),
   // What a run delivers.
   box("out-brief", "output", "Briefs", "Hot List first", 117, 200, 155, 60),
   box("out-pages", "output", "Atlas pages", "Today, Inbox, Jobs…", 282, 200, 155, 60),
-  box("out-approvals", "output", "Approval Queue", "Nothing sends alone", 117, 284, 155, 60),
+  box("out-approvals", "output", "Apply queues", "Nothing sends alone", 117, 284, 155, 60),
   box("out-phone", "output", "Phone alert", "Urgent only", 282, 284, 155, 60),
   // The orchestrator, and the AI model the marked agents use for judgment.
   box(COS, "orchestrator", profile("chief-of-staff").name, "Routes work and writes the briefs", 660, 255, 420, 100, "chief-of-staff"),
-  box(MODEL_NODE, "model", "AI model", "Judgment for 4 agents", 1115, 250, 330, 170),
+  box(MODEL_NODE, "model", "AI model", "Judgment for 5 agents", 1115, 250, 330, 170),
   // Daily desk.
   specialist("calendar", "daily", 0, 0),
   specialist("news", "daily", 1, 0),
   specialist("finance", "daily", 0, 1),
   specialist("email", "daily", 1, 1),
-  // Career desk, in the order work moves through it: Scout, Analyst, Mentor; Applications acts on it.
+  // Career desk, in the order work moves through it: Scout, Analyst, Career Mentor; Applications acts on it.
   specialist("scout", "career", 0, 0),
   specialist("analyst", "career", 1, 0),
   specialist("career", "career", 0, 1),
@@ -128,7 +138,20 @@ export const MAP_NODES: readonly MapNode[] = [
   source("src-figma", "Figma", "Resume, read-only", 5),
   source("src-notion", "Notion", "Roles and resumes", 6),
   // Quality: no lines. It asks no agent and reads no source; it reads what they logged.
-  box("qa", "agent", profile("qa").name.replace(/ Agent$/, ""), JOB.qa, 660, 908, 300, 64, "qa"),
+  box("qa", "agent", profile("qa").name, JOB.qa, 338, 908, 300, 64, "qa"),
+  // No lines either: you start it from the Career page, one approved application at a time.
+  box("apply", "agent", profile("apply").name, JOB.apply, 978, 908, 300, 64, "apply"),
+  // The MCP layer, left to right: who signs Claude in, Claude itself, Atlas's MCP server, and what it reads.
+  // The agents. No lines: you start them (or the sync does, for a new interview), and they read only your own material.
+  box("loop-research", "loop", "Researcher", "Researches one company", 164, 1036, 228, 60),
+  box("loop-pitch", "loop", "Tailor", "Tailors one application", 411, 1036, 228, 60),
+  box("loop-followup", "loop", "Nudger", "Writes one follow-up", 658, 1036, 228, 60),
+  box("loop-prep", "loop", "Coach", "Prepares one interview", 905, 1036, 228, 60),
+  box("loop-strategist", "loop", "Planner", "Plans your week", 1152, 1036, 228, 60),
+  box("mcp-auth", "client", "Supabase Auth", "OAuth sign-in, your consent", 190, 1158, 250, 60),
+  box("mcp-claude", "client", "Claude", "Chat or voice: web, phone, Code", 500, 1158, 250, 60),
+  box(MCP_NODE, "connector", "MCP server", "/api/mcp · 9 read-only tools", 820, 1158, 250, 60),
+  box("mcp-data", "connector", "Atlas data", "Queue, prep, market, proof…", 1130, 1158, 250, 60),
 ];
 
 const edge = (from: string, to: string, kind: EdgeKind, label?: string): MapEdge => ({ id: `${from}>${to}`, from, to, kind, ...(label ? { label } : {}) });
@@ -167,10 +190,16 @@ export const MAP_EDGES: readonly MapEdge[] = [
   edge(MODEL_NODE, "analyst", "judge", "report wording"),
   edge(MODEL_NODE, "career", "judge", "job fit, drafts"),
   edge(MODEL_NODE, "mentor", "judge", "insights, role order"),
+  // The Apply Agent's one use of the model: a draft answer to a form's own open question.
+  edge(MODEL_NODE, "apply", "judge", "form answers"),
   edge(COS, "out-brief", "deliver"),
   edge(COS, "out-pages", "deliver"),
   edge(COS, "out-approvals", "deliver"),
   edge(COS, "out-phone", "deliver"),
+  // Claude signs in once through Supabase Auth, then calls Atlas's tools with that token; the tools only read.
+  edge("mcp-claude", "mcp-auth", "connect", "sign in, token"),
+  edge("mcp-claude", MCP_NODE, "connect", "tool calls"),
+  edge(MCP_NODE, "mcp-data", "connect", "reads only"),
 ];
 
 // ---- where each line runs ----
@@ -244,9 +273,16 @@ export function route(e: MapEdge): Point[] {
     }
     case "judge": {
       if (b.id === COS) return [[a.x - a.w / 2, b.y], [b.x + b.w / 2, b.y]];
+      // A box below the desks (the Apply Agent): down the desk's right edge, then in from the right.
+      if (b.y > SOURCE_BUS) return [[JUDGE_X, bottom(a)], [JUDGE_X, b.y], [b.x + b.w / 2, b.y]];
       if (!backRow(b)) return [[b.x + 91, bottom(a)], [b.x + 91, top(b)]];
       if (b.x + b.w / 2 >= JUDGE_X - 20) return [[JUDGE_X, bottom(a)], [JUDGE_X, b.y], [b.x + b.w / 2, b.y]];
       return [[JUDGE_X, bottom(a)], [JUDGE_X, ROW_LANE.judge], [b.x + 76, ROW_LANE.judge], [b.x + 76, top(b)]];
+    }
+    case "connect": {
+      // The connector row: boxes side by side, joined straight across.
+      const right = b.x > a.x;
+      return [[right ? a.x + a.w / 2 : a.x - a.w / 2, a.y], [right ? b.x - b.w / 2 : b.x + b.w / 2, b.y]];
     }
     case "deliver": {
       const into = b.y < OUT_LANE ? bottom(b) : top(b);
@@ -273,8 +309,9 @@ const INPUT_EDGES: Record<AgentId, string[]> = {
   finance: ["email>finance"],
   scout: ["src-boards>scout", "src-github>scout"],
   analyst: ["scout>analyst"],
-  mentor: ["analyst>mentor", "src-notion>mentor"],
+  mentor: ["analyst>mentor"],
   qa: [],
+  apply: [],
 };
 const SOURCES: Record<AgentId, string[]> = {
   "chief-of-staff": [],
@@ -285,40 +322,51 @@ const SOURCES: Record<AgentId, string[]> = {
   finance: [],
   scout: ["src-boards", "src-github"],
   analyst: [],
-  mentor: ["src-notion"],
+  mentor: [],
   qa: [],
+  apply: [],
 };
 
 // ---- what the focus panel says about each box ----
 
 /** Plain facts about each box for the panel under the map. Nothing personal: the same for everyone. */
 export const NODE_FACTS: Record<string, readonly (readonly [string, string])[]> = {
-  "trigger-sync": [["Runs", "Monday to Saturday, every two hours from 6 AM to 4 PM"], ["Starts", "The Chief of Staff, which asks each agent for fresh data"]],
-  "trigger-brief": [["Runs", "9:00 AM and 2:00 PM on weekdays, one brief Saturday morning"], ["Starts", "The Chief of Staff, which writes the brief"]],
-  "trigger-evening": [["Runs", "6 PM, Monday to Saturday"], ["Starts", "Applications syncs your Figma resume into Notion, then the Mentor reviews"]],
-  "trigger-you": [["Buttons", "Sync now, Run now, Ask the Mentor now, and Refresh and review (Scout, Applications, Analyst, then the Mentor)"]],
+  "trigger-sync": [["Kind", "Automation: a schedule (Vercel Cron) that fires on its own"], ["Workflow it starts", "2-hour sync"], ["Runs", "Monday to Saturday, every two hours from 6 AM to 4 PM"], ["Starts", "The Chief of Staff, which asks each bot for fresh data"]],
+  "trigger-brief": [["Kind", "Automation: a schedule (Vercel Cron) that fires on its own"], ["Workflows it starts", "Morning brief and 2:00 PM brief"], ["Runs", "9:00 AM and 2:00 PM on weekdays, one brief Saturday morning"], ["Starts", "The Chief of Staff, which writes the brief"]],
+  "trigger-evening": [["Kind", "Automation: a schedule (Vercel Cron) that fires on its own"], ["Workflow it starts", "Evening run"], ["Runs", "6 PM, Monday to Saturday"], ["Starts", "On Mondays Applications updates your resume text in Notion from Figma; every evening the Career Mentor reviews"]],
+  "trigger-you": [["Kind", "Manual: nothing here runs until you press a button"], ["Buttons", "Sync now, Run now, Ask the Career Mentor now, and Refresh and review (Scout, Applications, Analyst, then the Career Mentor)"]],
   "out-brief": [["What", "The Morning, 2:00 PM and Saturday briefs, Hot List first"], ["Catch up", "Today and the two days before it, never before this week's Monday"]],
   "out-pages": [["What", "Today, Inbox, Jobs and the other pages, never more than two hours old"]],
   "out-approvals": [["What", "Everything that would send, apply or change something"], ["Rule", "Nothing goes out until you approve it"]],
   "out-phone": [["What", "An alert on your phone"], ["When", "Only for something urgent"]],
-  "chief-of-staff": [["Reads", "Every agent's report"], ["Delivers", "Briefs, Atlas pages, the Approval Queue, phone alerts"]],
+  "chief-of-staff": [["Workflows it runs", "Morning brief, 2:00 PM brief, 2-hour sync, evening run, refresh and review: fixed steps, in order"], ["Reads", "Every bot's report"], ["Delivers", "Briefs, Atlas pages, the apply queues, phone alerts"]],
   calendar: [["Reads", "Google Calendar, read-only"], ["Gives", "Today and the week ahead, conflicts and interviews"]],
   news: [["Reads", "Allowlisted news feeds"], ["Gives", "Nine stories for the brief"]],
-  finance: [["Reads", "Bills and payment alerts from the Email Agent, and your Renewals list"], ["Gives", "Bills due and deals"]],
+  finance: [["Reads", "Bills and payment alerts from the Email bot, and your Renewals list"], ["Gives", "Bills due and deals"]],
   email: [["Reads", "Gmail, headers only"], ["Hands off", "Job emails to Applications, bills to Finance"]],
   scout: [["Reads", "Job boards on your watchlist, and your GitHub repos once a day"], ["Hands off", "Postings to the Analyst"]],
-  analyst: [["Reads", "The Scout's postings"], ["Hands off", "The market report to the Mentor"]],
-  career: [["Reads", "Job boards, Notion roles and resumes, your Figma resume, and the text of job emails and of emails from companies you applied to, for rejections, interview invites and the role"], ["Writes", "Your resume text to Notion at 6 PM"], ["Never", "Submits an application for you"]],
-  mentor: [["Reads", "The market report, your GitHub projects, your target roles in Notion"], ["Writes", "Role order to Notion, only after you approve it"]],
+  analyst: [["Reads", "The Scout's postings, your applications and your GitHub projects"], ["Writes", "The market report, your proof project, lessons from your results, and which role an unclear job title belongs to"], ["Hands off", "The market report and lessons to the Career Mentor"]],
+  career: [["Reads", "Job boards, Notion roles and resumes, your Figma resume, and the text of job emails and of emails from companies you applied to, for rejections, interview invites and the role"], ["Writes", "Your resume text to Notion at 6 PM on Mondays"], ["Level", "Junior to 2 years asked at most; senior roles are ignored"], ["Runs", "Atlas's agents: the Researcher, Tailor, Coach, Planner and Nudger"], ["Never", "Submits an application for you"]],
+  mentor: [["Reads", "The market report, your proof project, lessons from your results, your Action Taken notes, your GitHub projects and target roles; once a month a web search per role (Firecrawl, snippets only)"], ["Writes", "Role profiles and descriptions; your role order in Atlas only after you approve it"]],
   qa: [["Reads", "The activity log, saved briefs, eval scores, connections and your queues. Counts and times, never content"], ["Gives", "A ranked weekly review on Mission Control, each finding with a suggested fix"], ["Never", "Changes anything, or uses the AI model"]],
+  apply: [["Answers", "The form you are looking at, for Atlas Autofill in Safari: from your answer bank, your fixed answers and your resume"], ["When", "Only when you press Help me apply; you review every answer"], ["Never", "Submits, clicks or signs in anywhere: you submit every application yourself"]],
+  "loop-research": [["Kind", "Agent · tool-using loop with a reviewer and a judge"], ["Does", "Looks one company up on the public web, choosing its own next search or page, and writes what it does, why them, your angle and what to ask"], ["Tools", "readJob, companyNews, searchWeb, readPage, checkLines"], ["Limits", "3 searches, 3 pages, 12 steps and 8 AI calls a run; inside Firecrawl's monthly budget"], ["Runs", "Every night for your top picks (night shift), or Research this company"], ["Never", "Reads LinkedIn, Indeed or Glassdoor, opens a page its own search did not return, or states a number its sources lack"]],
+  "loop-pitch": [["Kind", "Agent · tool-using loop with a reviewer and a judge"], ["Does", "Maps each must-have of one queued job to proof from your resume or names a gap, proposes up to 3 resume swaps in the posting's words, drafts a note"], ["Tools", "readJob, readResume, findEvidence, checkClaims"], ["Limits", "12 steps and 10 AI calls a run; rules version when AI is off"], ["Never", "Edits your resume or sends anything"]],
+  "loop-followup": [["Kind", "Agent · tool-using loop with a reviewer and a judge"], ["Does", "Rewrites a waiting follow-up with one specific, true reason to reply, from saved research or the pitch, and greets someone you know there"], ["Tools", "readApplication, readResearch, readPitch, findPerson, checkDraft"], ["Limits", "10 steps and 6 AI calls a run; two a night; the template stands when it cannot do better"], ["Runs", "Every night (night shift), or Rewrite with agent in the Apply Queue"], ["Never", "Sends an email or uses an email address"]],
+  "loop-strategist": [["Kind", "Agent · tool-using loop with a reviewer and a judge"], ["Does", "Reads your funnel, queue, applications, market, proof project and last week, and proposes exactly three moves for the week, each citing its numbers"], ["Tools", "readFunnel, readQueue, readLastWeek, readApplications, readMarket, readProof, checkPlan"], ["Limits", "12 steps and 9 AI calls a run; rules version when AI is off"], ["Runs", "Sunday night (night shift), or Plan my week on Growth"], ["Never", "Puts anything on your days before you approve"]],
+  "loop-prep": [["Kind", "Agent · tool-using loop with a reviewer and a judge"], ["Does", "Likely questions for one interview, a true story for each from your material, honest gaps, questions to ask"], ["Tools", "readJob, readCompany, findStory, checkClaims"], ["Limits", "14 steps and 10 AI calls a run; one new interview per sync"], ["Never", "Invents a story or a number, or sends anything"]],
+  "mcp-claude": [["What", "Claude on the web, the Mac app, the phone app (voice mode included) or Claude Code, talking with you about your job search"], ["Reads Atlas", "Only through the MCP server, with a token you approved"], ["Never", "Sends, applies or changes anything in Atlas"]],
+  "mcp-auth": [["What", "Supabase Auth acting as the OAuth 2.1 server: Claude registers itself, you approve it once on Atlas's consent page"], ["Who", "Only the owner's account, signed in with the second factor"], ["Revoke", "Settings, Connect Claude"]],
+  [MCP_NODE]: [["Endpoint", "/api/mcp, stateless Streamable HTTP, a fresh server per request"], ["Checks", "The OAuth token is the owner's, Claude access is on in Settings, 60 requests per 10 minutes"], ["Tools", "9, all read-only, each with a 10-second limit and an audit entry"], ["Guide", "docs/MCP-BUILD.md"]],
+  "mcp-data": [["Reads", "Apply Queue, applications, the funnel, the market report and role profiles, the proof project, Tailor and Coach packets, resume and project passages"], ["Removed", "Email addresses and phone numbers, before anything leaves Atlas"], ["Never", "A write: the tools file is checked for one in CI"]],
   [MODEL_NODE]: [["Guardrails", "Judges inside the rules' bounds. Every change still waits for your approval. The key stays in Vercel and is never logged."]],
   "src-gcal": [["Access", "Read-only"], ["Read by", "Calendar"]],
   "src-feeds": [["Access", "Allowlisted sites only"], ["Read by", "News"]],
   "src-gmail": [["Access", "Read-only. Headers for the inbox; the text of job emails and companies you applied to only, never kept"], ["Read by", "Email (headers), Applications (job emails, by rules)"]],
   "src-boards": [["Access", "Public feeds. LinkedIn, Indeed and Glassdoor stay semi-automated"], ["Read by", "Scout, Applications"]],
-  "src-github": [["Access", "Read-only token, the repos you chose"], ["Read by", "Scout. The Mentor uses it as evidence"]],
+  "src-github": [["Access", "Read-only token, the repos you chose"], ["Read by", "Scout. The Career Mentor uses it as evidence"]],
   "src-figma": [["Access", "Read-only token"], ["Read by", "Applications, at 6 PM"]],
-  "src-notion": [["Access", "Reads roles and resumes. Writes your resume text and the role order you approve"], ["Used by", "Applications, Mentor"]],
+  "src-notion": [["Access", "Reads roles and resumes. Writes your resume text and the role order you approve"], ["Used by", "Applications, Career Mentor"]],
 };
 
 /** The boxes joined to this one by a line: what stays bright when you focus a box. */
@@ -420,6 +468,36 @@ export interface LiveSnapshot {
   nextBrief: string;
   /** Calls to the AI model today against the daily limit, for the AI model's box. */
   aiCalls?: { used: number; limit: number };
+  /** Atlas's agents: each one's latest run, from the activity log (by task name). */
+  loops?: Record<string, { state: NodeState; at: string | null }>;
+  /** Claude's MCP connector today, from the audit log: counts and times only. */
+  mcp?: McpLive;
+}
+
+/** What the MCP server's box shows: whether Claude access is on, and today's calls. */
+export interface McpLive {
+  on: boolean;
+  state: NodeState;
+  calls: number;
+  errors: number;
+  /** The latest call today, or null. */
+  lastAt: string | null;
+}
+
+/**
+ * The MCP box's state from today's audit rows (action "mcp.<tool>"): blue while Claude read in the
+ * last 90 seconds, red when the latest call failed, green after calls, grey when there were none,
+ * dashed (paused) when Claude access is off.
+ */
+/** Your own MCP actions in the audit log (the switch, revoking an app): not Claude's reads. Consent rows have a dot and never match. */
+const MCP_OWNER_ACTIONS = new Set(["mcp.enabled", "mcp.disabled", "mcp.revoke"]);
+
+export function mcpLive(on: boolean, events: readonly { action: string; outcome: string; at: string }[], now: Date, since: string): McpLive {
+  const calls = events.filter((e) => /^mcp\.[a-z_]+$/.test(e.action) && !MCP_OWNER_ACTIONS.has(e.action) && e.at >= since).sort((a, b) => b.at.localeCompare(a.at));
+  const last = calls[0] ?? null;
+  const errors = calls.filter((e) => e.outcome === "error").length;
+  const state: NodeState = !on ? "paused" : !last ? "idle" : now.getTime() - Date.parse(last.at) < 90_000 ? "running" : last.outcome === "error" ? "failed" : "ok";
+  return { on, state, calls: calls.length, errors, lastAt: last?.at ?? null };
 }
 
 const STATE: Record<LiveRun["status"], NodeState> = { started: "running", succeeded: "ok", failed: "failed", skipped: "skipped", stalled: "stalled" };
@@ -449,7 +527,7 @@ function missionFrom(runs: readonly LiveRun[]): Mission | null {
   return { kind: missionKind(run.task)!, run, members, delivered };
 }
 
-export function liveSnapshot(input: { rows: readonly AgentRunEvent[]; paused: readonly AgentId[]; now: Date; detail: boolean; nextSync: string; nextBrief: string; aiCalls?: { used: number; limit: number } }): LiveSnapshot {
+export function liveSnapshot(input: { rows: readonly AgentRunEvent[]; paused: readonly AgentId[]; now: Date; detail: boolean; nextSync: string; nextBrief: string; aiCalls?: { used: number; limit: number }; mcp?: McpLive }): LiveSnapshot {
   const runs = groupRuns(input.rows, input.now.getTime(), input.detail);
   const agents = AGENT_ORDER.map((id): AgentLive => {
     const last = runs.find((r) => r.agent === id);
@@ -457,15 +535,24 @@ export function liveSnapshot(input: { rows: readonly AgentRunEvent[]; paused: re
     const state: NodeState = last?.status === "started" ? "running" : paused ? "paused" : last ? STATE[last.status] : "idle";
     return { agent: id, state, paused, task: last?.task ?? "", at: last ? (last.endedAt ?? last.startedAt) : null, durationMs: last?.durationMs ?? null };
   });
+  // Atlas's agents log under the Applications bot: each one's latest run is found by its task name.
+  const loops = Object.fromEntries(
+    LOOP_AGENTS.map((a) => {
+      const last = runs.find((r) => r.task === a.task);
+      return [`loop-${a.id}`, { state: (last ? (last.status === "started" ? "running" : STATE[last.status]) : "idle") as NodeState, at: last ? (last.endedAt ?? last.startedAt) : null }];
+    }),
+  );
   return {
     at: input.now.toISOString(),
     detail: input.detail,
     agents,
+    loops,
     mission: missionFrom(runs),
     feed: runs.slice(0, 10).map((r) => ({ ...r, steps: [] })),
     nextSync: input.nextSync,
     nextBrief: input.nextBrief,
     ...(input.aiCalls ? { aiCalls: input.aiCalls } : {}),
+    ...(input.mcp ? { mcp: input.mcp } : {}),
   };
 }
 
@@ -502,7 +589,7 @@ export function liveHighlights(snap: LiveSnapshot, nowMs: number): Highlights {
     nodes.add(id);
     if (id === "chief-of-staff") continue;
     if (orchestrating) edges.add(`${COS}>${id}`);
-    // The evening run starts Applications and the Mentor on its own schedule.
+    // The evening run starts Applications and the Career Mentor on its own schedule.
     const a = snap.agents.find((x) => x.agent === id);
     if (!orchestrating && (id === "career" || id === "mentor") && a && EVENING_TASKS.includes(a.task)) {
       nodes.add("trigger-evening");
@@ -524,14 +611,14 @@ export function liveHighlights(snap: LiveSnapshot, nowMs: number): Highlights {
 // ---- replay ----
 
 const ASKED: [RegExp, AgentId][] = [
-  [/ask the email agent/i, "email"],
-  [/ask the calendar agent/i, "calendar"],
-  [/ask the news agent/i, "news"],
-  [/ask the (career|applications) agent/i, "career"],
+  [/ask the email (agent|bot)/i, "email"],
+  [/ask the calendar (agent|bot)/i, "calendar"],
+  [/ask the news (agent|bot)/i, "news"],
+  [/ask the (career|applications) (agent|bot)/i, "career"],
   [/ask the scout/i, "scout"],
   [/ask the analyst/i, "analyst"],
   [/ask the mentor/i, "mentor"],
-  [/ask the finance agent/i, "finance"],
+  [/ask the finance (agent|bot)/i, "finance"],
 ];
 /** The specialist a Chief of Staff step hands work to, if any. */
 export const askedAgent = (step: string): AgentId | null => ASKED.find(([re]) => re.test(step))?.[1] ?? null;
@@ -544,7 +631,7 @@ const TOUCHES: [RegExp, string[]][] = [
   [/job feeds/i, ["src-boards"]],
   [/github/i, ["src-github"]],
   [/figma/i, ["src-figma"]],
-  [/inbox the email agent synced|job emails/i, ["email"]],
+  [/inbox the email (agent|bot) synced|job emails/i, ["email"]],
   [/queue follow-ups/i, ["out-approvals"]],
   [/save the brief/i, ["out-brief"]],
   [/ping your phone/i, ["out-phone"]],
@@ -590,7 +677,7 @@ export function framesFor(m: Mission): Frame[] {
       add({ actor: "chief-of-staff", title: s.name, nodes, edges: edgesAmong(nodes), ms: s.ms, ok: s.ok, ...(s.note ? { note: s.note } : {}) });
       continue;
     }
-    const name = profile(who).name;
+    const name = spokenName(profile(who));
     const ask = `${COS}>${who}`;
     add({ actor: "chief-of-staff", title: `Chief of Staff asks the ${name}`, nodes: [COS, who], edges: [ask], ms: null, ok: true });
     const member = m.members.find((r) => r.agent === who && !used.has(r.runId));

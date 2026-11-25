@@ -1,6 +1,8 @@
 // Domain records shared by every layer. Pure types: no I/O, no framework imports.
 // Field names are camelCase here; the Supabase adapter maps them to snake_case columns.
 
+import type { FormProfile } from "./formProfile";
+
 export const AREAS = ["work", "career", "family", "health", "home", "finance", "personal"] as const;
 export type Area = (typeof AREAS)[number];
 
@@ -66,8 +68,17 @@ export interface Contact {
   slackTeamId?: string | null;
   /** Slack member ID, e.g. "U012AB3CD". */
   slackUserId?: string | null;
+  /** Their category on the People tab, or null when they are not placed (lib/domain/people.ts). */
+  category?: PeopleCategory | null;
+  /** Their place in the category, 1 to 4. */
+  slot?: number | null;
+  /** True when they came in with the whole-contact-list import: searchable, otherwise out of the way until placed. */
+  phonebook?: boolean;
   createdAt: string;
 }
+
+export const PEOPLE_CATEGORIES = ["spouse", "family", "friends", "colleagues", "mentors", "church"] as const;
+export type PeopleCategory = (typeof PEOPLE_CATEGORIES)[number];
 
 export const CHANNELS = ["email", "sms", "slack"] as const;
 export type Channel = (typeof CHANNELS)[number];
@@ -86,6 +97,10 @@ export interface OutboundMessage {
   draftedBy: "ai" | "template" | "you";
   createdAt: string;
   handedOffAt: string | null;
+  /** A text you scheduled: when Atlas reminds you to send it. You send it yourself. */
+  remindAt?: string | null;
+  /** When that reminder went out, so it goes out once. */
+  remindedAt?: string | null;
 }
 
 export interface Routine {
@@ -127,8 +142,20 @@ export interface Renewal {
   createdAt: string;
 }
 
-export const JOB_BOARDS = ["greenhouse", "lever", "ashby"] as const;
+export const JOB_BOARDS = ["greenhouse", "lever", "ashby", "smartrecruiters", "workable", "recruitee", "bamboohr", "applicantpro"] as const;
 export type JobBoard = (typeof JOB_BOARDS)[number];
+
+/** How each board is named on screen, and where its slug sits in a jobs URL. */
+export const JOB_BOARD_INFO: Record<JobBoard, { label: string; example: string }> = {
+  greenhouse: { label: "Greenhouse", example: "boards.greenhouse.io/vercel" },
+  lever: { label: "Lever", example: "jobs.lever.co/plaid" },
+  ashby: { label: "Ashby", example: "jobs.ashbyhq.com/linear" },
+  smartrecruiters: { label: "SmartRecruiters", example: "jobs.smartrecruiters.com/visa" },
+  workable: { label: "Workable", example: "apply.workable.com/huggingface" },
+  recruitee: { label: "Recruitee", example: "bunq.recruitee.com" },
+  bamboohr: { label: "BambooHR", example: "kiln.bamboohr.com/careers" },
+  applicantpro: { label: "ApplicantPro", example: "skullcandy.applicantpro.com" },
+};
 
 export interface JobWatch {
   id: string;
@@ -169,27 +196,83 @@ export interface Settings {
   emailUnsubscribed?: string[];
   /** Career Agent: the roles you target (defaults in lib/domain/targetRoles.ts). */
   careerRoles?: string[];
-  /** Career Agent: full-time salary floor in USD per year. */
+  /** Career Agent: salary floor in USD per year. Posted pay under it rules a posting out. */
   careerMinSalary?: number;
-  /** Career Agent: contract and gig floor in USD per hour. */
-  careerMinRate?: number;
+  /** Career Agent: the base pay you are aiming at, in USD per year. A posting that reaches it ranks higher. */
+  careerTargetSalary?: number;
+  /** The most years of experience a posting may ask for; above it, a job is ignored (lib/domain/levelPolicy.ts). Default 2. */
+  careerMaxYears?: number;
+  /** What you bring besides engineering, in a sentence, for the agents to use as an angle (lib/domain/levelPolicy.ts). */
+  careerBackground?: string;
   /** Career Agent: a link to your resume for each target role (e.g. a Google Drive file), by role name. */
   careerResumes?: Record<string, string>;
   /** Your master resume (the copy the role resumes are tailored from). Synced from Notion. */
   careerMasterResume?: string;
-  /** Applications Agent: planned applications a day per track (defaults 3 and 1). The Mentor measures you against them. */
+  /** Applications Agent: planned applications a day (default 3). The Career Mentor measures you against it. */
   careerDailyFullTime?: number;
-  careerDailyGigs?: number;
-  /** Your LinkedIn headline and About, pasted by you for the Mentor to review. Contact details are stripped when it is saved. */
+  /** Your LinkedIn headline and About, pasted by you for the Career Mentor to review. Contact details are stripped when it is saved. */
   linkedinProfile?: string;
   /** Career Agent: your answer bank, by question id (lib/domain/careerPrep.ts). */
   careerAnswers?: Record<string, string>;
+  /**
+   * Your own answers to eligibility questions, typed by you once. The Apply Agent uses them
+   * as written and never drafts or guesses them (docs/design.md, 5.5). Unset: it stops.
+   */
+  careerEligibility?: Eligibility;
+  /**
+   * Your fixed profile answers for forms: phone country code, country, city, school, degree,
+   * discipline and graduation year (lib/domain/formProfile.ts). Typed by you; used as written.
+   */
+  careerProfile?: Partial<FormProfile>;
+  /** The Data Pipeline section's settings, read through pipelineConfig() (lib/domain/dataPipeline.ts), which fills defaults. */
+  dataPipeline?: unknown;
+  /**
+   * Atlas Autofill's key: only its SHA-256 is kept, never the key itself. Set when you connect
+   * the extension in Settings, removed when you disconnect it (lib/domain/extensionForm.ts).
+   */
+  extensionKey?: { hash: string; prefix: string; createdAt: string; lastUsedAt?: string };
+  /** Forms the extension asked Atlas to answer today, for its daily cap. Written by Atlas. */
+  extensionUsage?: { day: string; forms: number };
   /** Career Agent: skills you already have, by name (lib/domain/skills.ts). */
   careerSkills?: string[];
+  /** Claude may read Atlas through its MCP connector (app/api/mcp). Off until you turn it on in Settings. */
+  mcpEnabled?: boolean;
+  /** When Claude last read Atlas through MCP. Written by Atlas, at most once a minute. */
+  mcpLastUsedAt?: string;
+  /** The Career Mentor's proof projects: the one open now and those GitHub closed (lib/domain/gapPlan.ts). Written by the Analyst. */
+  careerProof?: unknown;
+  /** The Weekly Strategist's plan for the week: proposed, approved or dismissed (lib/domain/weeklyPlan.ts). Written by Atlas. */
+  weeklyPlan?: unknown;
+  /** Gemini's judgments of job titles the six-role rules cannot place (lib/domain/roleLens.ts `LensJudgments`). Written by Atlas. */
+  lensJudged?: unknown;
   /** The last sync with Notion (role order and resume links). Written by Atlas. */
   notion?: NotionSync;
   /** The Resumes data source in Notion, remembered so it is read directly. Not a secret. */
   notionResumesId?: string;
+  /** Pages read through Firecrawl this month and today, so Atlas stops before the free limit. Written by Atlas. */
+  firecrawlUsage?: ReadUsage;
+  /** Apply briefs researched today (lib/agents/briefResearch.ts), against its cap of 10 a day. Written by Atlas. */
+  briefUsage?: { day: string; n: number };
+  /** Heard back: a rejection does not ping your phone; the next brief lists it. Off unless you turn it on. */
+  holdRejections?: boolean;
+  /**
+   * The Pipeline's model reader (docs/design-pipeline.md, 5.5): a job email rules cannot decide
+   * may be sent to the AI model, scrubbed and capped. Off unless you turn it on.
+   */
+  modelReader?: boolean;
+  /** When the model reader was last turned on. Only emails that arrived after it are sent. Written by Atlas. */
+  modelReaderSince?: string;
+}
+
+/** How many web pages Atlas has read through Firecrawl (lib/domain/postingFacts.ts holds the budget). */
+export interface ReadUsage {
+  /** "2026-11" */
+  month: string;
+  /** Pages read this month. */
+  pages: number;
+  day: LocalDate;
+  /** Pages read on that day. */
+  today: number;
 }
 
 export interface NotionSync {
@@ -237,7 +320,7 @@ export interface LedgerEntry {
  * (scout, analyst, career, mentor). "career" is the Applications Agent: it keeps the id
  * it has always had, so its history in the activity log stays in one piece.
  */
-export const AGENT_IDS = ["chief-of-staff", "email", "calendar", "news", "finance", "career", "scout", "analyst", "mentor", "qa"] as const;
+export const AGENT_IDS = ["chief-of-staff", "email", "calendar", "news", "finance", "career", "scout", "analyst", "mentor", "qa", "apply"] as const;
 export type AgentId = (typeof AGENT_IDS)[number];
 
 // ---- career tracker (built by the Career Agent from Atlas's own data) ----
@@ -311,6 +394,10 @@ export interface CalendarEvent {
   source: "calendar" | "interview" | "task";
   /** Marked "Free" (TRANSP:TRANSPARENT) in the calendar: shown, but never a conflict. */
   free?: boolean;
+  /** The color Google Calendar shows it in, as a checked six-digit hex (lib/domain/googleCalendar.ts). */
+  color?: string;
+  /** You declined it: Google shows it struck through, and it is never a conflict. */
+  declined?: boolean;
 }
 
 export interface Weather {
@@ -344,6 +431,10 @@ export interface Project {
   createdAt: string;
 }
 
+/** What a job email's text says, by rules (lib/domain/jobMailText.ts). "none": no rule decided it. */
+export const TEXT_VERDICTS = ["interview", "rejection", "assessment", "scheduling", "offer", "info_request", "none"] as const;
+export type TextVerdict = (typeof TEXT_VERDICTS)[number];
+
 export const INBOX_CATEGORIES = ["reply", "fyi", "noise"] as const;
 export type InboxCategory = (typeof INBOX_CATEGORIES)[number];
 
@@ -365,15 +456,20 @@ export interface InboxItem {
   reason: string;
   done: boolean;
   createdAt: string;
-  /** A job email's text, read: a rejection, an interview invite, or neither. Unset until read. */
-  textVerdict?: "interview" | "rejection" | "none" | null;
+  /** A job email's text, read by rules: what kind of answer it is, or "none". Unset until read. */
+  textVerdict?: TextVerdict | null;
   /** The sentence that decided `textVerdict`, without addresses, phone numbers or links. */
   textQuote?: string;
   /** The role the email's text names ("Senior AI Engineer"), or "". */
   textRole?: string;
+  /**
+   * When this email was handed to the AI model, if it ever was (docs/design-pipeline.md, 5.5).
+   * Set before the call, so an email's text leaves Atlas at most once.
+   */
+  modelReadAt?: string | null;
 }
 
-export const PROVIDERS = ["google", "gmail_imap"] as const;
+export const PROVIDERS = ["google", "gmail_imap", "google_calendar"] as const;
 export type Provider = (typeof PROVIDERS)[number];
 
 /** A connected account, as the owner's session sees it (the token is never included). */
@@ -463,22 +559,90 @@ export interface StoredBrief {
 
 // ---- Career Agent (build step 5) ----
 
-/** Full-time roles, or contract work and gigs. */
-export const JOB_TYPES = ["full-time", "gig"] as const;
-export type JobType = (typeof JOB_TYPES)[number];
-
 /** Where an application stands; the Applications board has one column per status. */
 export const APPLICATION_STATUSES = ["saved", "applied", "replied", "interview", "offer", "rejected"] as const;
 export type ApplicationStatus = (typeof APPLICATION_STATUSES)[number];
 
+/**
+ * The finer stage behind a status (docs/design-pipeline.md, 5.2). A screen, an assessment
+ * and an interview all read as status "interview"; "in_review" reads as "replied";
+ * "withdrawn" (you closed it) reads as "rejected".
+ */
+export const APPLICATION_STAGES = ["saved", "applied", "in_review", "screen", "assessment", "interview", "offer", "rejected", "withdrawn"] as const;
+export type ApplicationStage = (typeof APPLICATION_STAGES)[number];
+
+/** What can happen to an application. "stage_set" is a stage set outright: by you, or as the timeline's starting point. */
+export const EVENT_KINDS = ["saved", "applied", "confirmation", "reply", "info_request", "scheduling", "screen", "assessment", "interview", "offer", "rejection", "withdrawn", "follow_up", "stage_set"] as const;
+export type EventKind = (typeof EVENT_KINDS)[number];
+
+export const EVENT_SOURCES = ["email", "calendar", "you", "apply-agent", "atlas"] as const;
+export type EventSource = (typeof EVENT_SOURCES)[number];
+
+/** One thing that happened to an application. Rows are only ever added; where it stands is worked out from them. */
+export interface ApplicationEvent {
+  id: string;
+  applicationId: string;
+  kind: EventKind;
+  occurredAt: string;
+  source: EventSource;
+  /** What it came from ("email:<message id>", "approval:<id>", "you:<uuid>"), so nothing is logged twice. */
+  sourceRef: string;
+  /** The Gmail thread, for an email; else "". */
+  threadId: string;
+  /** Who decided what it means. A "model" event is a suggestion and never moves a stage. */
+  decidedBy: "rules" | "model" | "you";
+  /** Only for "stage_set": the stage it was set to. */
+  stage: ApplicationStage | null;
+  /** A kind label, a subject, or the one cleaned sentence the reader kept. Never an email's text. */
+  summary: string;
+  /** A date the email gives for what it asks ("2026-12-04"), when a reading found one. */
+  deadline?: string | null;
+  /** What the email asks for, in a few words, when a reading found it. Never an email's text. */
+  ask?: string;
+  createdAt: string;
+}
+export type NewApplicationEvent = Omit<ApplicationEvent, "id" | "createdAt">;
+
+/**
+ * How a company's answer reaches you (docs/design-pipeline.md, 5.7): "push" pings your phone,
+ * "brief" waits for the next brief (a rejection, when you asked for that), "quiet" is only
+ * in the Heard back feed.
+ */
+export const NOTICE_TIERS = ["push", "brief", "quiet"] as const;
+export type NoticeTier = (typeof NOTICE_TIERS)[number];
+
+/**
+ * One answer from a company, as the Heard back feed lists it and as your phone shows it: one
+ * row per timeline event. The text is the company, the kind and the role; never an email's words.
+ */
+export interface Notice {
+  id: string;
+  /** The timeline event it is about. One notice per event, so a retry never adds a second. */
+  eventId: string;
+  applicationId: string;
+  kind: EventKind;
+  /** When the email arrived. */
+  occurredAt: string;
+  title: string;
+  body: string;
+  /** Where it opens in Atlas: the application's page. */
+  url: string;
+  tier: NoticeTier;
+  /** When it reached you: the push, or the brief that listed it. Null: not yet, or never (quiet). */
+  sentAt: string | null;
+  /** When you saw it in Atlas. Null: unread. */
+  seenAt: string | null;
+  createdAt: string;
+}
+export type NewNotice = Omit<Notice, "id" | "createdAt">;
+
 export type PayUnit = "year" | "hour" | "";
 
-/** A posting the Career Agent showed in a brief. Kept so no match is ever shown twice. */
+/** A full-time posting the Applications Agent showed in a brief. Kept so no match is ever shown twice. */
 export interface JobMatch {
   id: string;
   /** Stable identity of the posting (source + id or url); unique per owner. */
   key: string;
-  type: JobType;
   title: string;
   company: string;
   url: string;
@@ -495,7 +659,7 @@ export interface JobMatch {
   shownSlot: string;
   /** Your thumbs: 1 up, -1 down, 0 not rated. */
   rating: number;
-  /** new, pursuing (a 👍 sent it to the Approval Queue), applied, or dismissed. */
+  /** new, pursuing (a 👍 sent it to an apply queue), applied, or dismissed. */
   status: "new" | "pursuing" | "applied" | "dismissed";
   /** Skills the posting asks for (lib/domain/skills.ts). Added in part 5c. */
   skills?: string[];
@@ -506,15 +670,18 @@ export interface Application {
   id: string;
   company: string;
   role: string;
-  type: JobType;
   /** Which of your target roles it is for ("" when not one of them). */
   targetRole: string;
   source: string;
   url: string;
   payText: string;
-  /** Semi-Automation: you submit; Full Automation is not available yet. */
-  tier: "semi";
+  /** Who submitted it: "semi", you (Semi-Automation); "auto", the Apply Agent after you approved it. */
+  tier: "semi" | "auto";
   status: ApplicationStatus;
+  /** The finer stage. Unset on rows from before the Pipeline; read it with `stageOf` (lib/domain/pipeline.ts), which checks it against `status`. */
+  stage?: ApplicationStage | null;
+  /** When the company last wrote, not counting an automatic "we received your application". */
+  lastHeardAt?: string | null;
   appliedOn: string | null;
   statusAt: string;
   notes: string;
@@ -523,12 +690,24 @@ export interface Application {
   /** The email or match it came from ("email:<id>", "match:<key>"), so nothing is logged twice. */
   externalId: string;
   createdAt: string;
+  // What it was sent with (Step 0 of the agent plan, 23 Nov 2026; lib/domain/outcomes.ts).
+  // Null or absent: not known (logged before, or from an email Atlas could not link to a posting).
+  /** The level its title states. */
+  level?: "early" | "mid" | "senior" | "unstated" | null;
+  /** The day the posting went up. */
+  postedOn?: LocalDate | null;
+  /** The resume sent: "Software Engineer 1 · 3fa2c19b" (its name and a fingerprint of its text). */
+  resumeVersion?: string;
+  /** You changed the resume or wrote a note for this job. */
+  tailored?: boolean | null;
+  /** You knew someone there, or were referred. */
+  warm?: boolean | null;
 }
 
-export const APPROVAL_KINDS = ["application", "gig-proposal", "follow-up", "outreach"] as const;
+export const APPROVAL_KINDS = ["application", "follow-up", "outreach"] as const;
 export type ApprovalKind = (typeof APPROVAL_KINDS)[number];
 
-/** One item waiting on you in the Approval Queue. */
+/** One item waiting on you in an apply queue. */
 export interface Approval {
   id: string;
   kind: ApprovalKind;
@@ -544,3 +723,83 @@ export interface Approval {
   decidedAt: string | null;
   createdAt: string;
 }
+
+// ---- Apply Agent (docs/design.md) ----
+
+/** Your answers to the eligibility questions most forms require. "" means you have not said. */
+export interface Eligibility {
+  /** Legally authorized to work in the U.S. */
+  authorized: "yes" | "no" | "";
+  /** Needs visa sponsorship now or in the future. */
+  sponsorship: "yes" | "no" | "";
+  /** Your usual answer to "have you worked here before?". Shown on every packet, so you can change it for one company. */
+  workedHere: "yes" | "no" | "";
+  /**
+   * Optional: your own answer to a form's Gender question. "" (or unset) means Atlas declines
+   * it, as it does every other demographic question. Never guessed, never drafted.
+   */
+  gender?: "male" | "female" | "nonbinary" | "";
+}
+
+/** One field of the application form and the answer the packet gives it. */
+export interface PacketItem {
+  /** The form's own field name, e.g. "first_name" or "question_123". */
+  name: string;
+  label: string;
+  required: boolean;
+  /** "typeahead": a box that suggests as you type (a city, a country); the first suggestion that matches is chosen. */
+  kind: "text" | "textarea" | "file" | "select" | "multiselect" | "checkbox" | "typeahead";
+  /**
+   * Where the answer comes from. "you": picked or written by you in the review. "none": nobody
+   * answers it, so it is left blank, or it stops the application when it is required.
+   */
+  source: "bank" | "eligibility" | "resume" | "ai" | "you" | "none";
+  /** For a select: the choices the form offers, so you can pick one in the review. */
+  options?: { label: string; value: string }[];
+  /** A question Atlas never answers, even with your pick (demographic, SSN, convictions): you apply yourself. */
+  locked?: boolean;
+  /** For the resume: which Figma frame it came from, and the fingerprints that prove the file sent is the one approved. */
+  file?: ResumeProof;
+  /** The answer, or for a select the option's label. "" for a file or no answer. */
+  value: string;
+  /** For a select: the option's value as the form expects it. */
+  optionValue?: string;
+}
+
+/**
+ * Proof that a resume PDF is your Figma frame as it was when you approved it (docs/design.md,
+ * 5.6). Taken when the packet is prepared; checked again right before the agent submits.
+ */
+export interface ResumeProof {
+  /** The Resumes row the frame came from ("AI Engineer"), and the role it was asked for when that differs. */
+  resume: string;
+  fileKey: string;
+  nodeId: string;
+  /** Fingerprint of the source when the copy was taken: the SHA-256 of the file in Notion (or, on older proofs, of the Figma frame's text). */
+  frameFingerprint: string;
+  /** SHA-256 of the PDF file kept for this application. */
+  pdfSha256: string;
+  bytes: number;
+  /** Where the file is kept in private storage. */
+  path: string;
+  exportedAt: string;
+  /** "notion": the PDF in the Resumes row's Resume file column. Unset on older proofs, which came from a Figma export. */
+  from?: "notion";
+  /** The file's name in Notion. */
+  fileName?: string;
+  /** Whether a job board can read the PDF's text (lib/domain/pdfReadable.ts). */
+  reading?: PdfReading;
+}
+
+/** What Atlas found when it read a resume PDF's text and compared it with the Figma frame. */
+export interface PdfReading {
+  /** good: readable, in order. warn: lines missing or stored in a mixed order. bad: no readable text. unknown: not checked. */
+  verdict: "good" | "warn" | "bad" | "unknown";
+  pages: number;
+  /** Lines of the resume as read from Figma, and how many of them the PDF's text holds. */
+  lines: number;
+  found: number;
+  /** What to know, in plain words. */
+  notes: string[];
+}
+

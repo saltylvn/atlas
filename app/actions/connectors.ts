@@ -8,6 +8,7 @@ import { geminiModel } from "@/lib/ai/gemini";
 import { audit } from "@/lib/audit";
 import { disconnectGmail as forgetGmail, gmailMissing, saveAppPasswordConnection, syncGmail } from "@/lib/connections/google";
 import { syncNotion } from "@/lib/connections/notion";
+import { disconnectCalendar as forgetCalendar } from "@/lib/connections/googleCalendar";
 import { getContext } from "@/lib/context";
 import { verifyLogin } from "@/lib/integrations/gmailImap";
 import { assertSessionIsOwner, ownerServiceStore } from "@/lib/owner";
@@ -27,6 +28,18 @@ export async function disconnectGmail(): Promise<ActionResult> {
     ok: true,
     message: "Disconnected and the synced inbox deleted. If you used an app password, also delete it at myaccount.google.com/apppasswords.",
   };
+}
+
+/** Forgets the Google Calendar connection (revoking its token at Google). Gmail and the iCal address are untouched. */
+export async function disconnectGoogleCalendar(): Promise<ActionResult> {
+  const ctx = await getContext();
+  if (ctx.mode !== "live") return { ok: false, error: "Nothing is connected in demo mode." };
+  assertSessionIsOwner(ctx);
+  await forgetCalendar();
+  await audit(ctx.store, { actor: "owner", action: "connection.google_calendar.disconnect", target: "google_calendar", detail: "token revoked and deleted", outcome: "success" });
+  revalidatePath("/connectors");
+  revalidatePath("/");
+  return { ok: true, message: "Disconnected. The calendar falls back to your iCal address, in Atlas blue." };
 }
 
 const AppPassword = z.object({
@@ -113,7 +126,7 @@ export async function sendTestPush(): Promise<ActionResult> {
   return r.sent > 0 ? { ok: true, message: `Sent to ${r.sent} device${r.sent === 1 ? "" : "s"}` } : { ok: false, error: "No device received it. Turn notifications on from the installed app first." };
 }
 
-/** Connectors: read the Resumes database in Notion now and update the role order and resume links. */
+/** Connectors: read the Resumes database in Notion now and update the resume links. */
 export async function syncNotionNow(): Promise<ActionResult> {
   const ctx = await getContext();
   if (ctx.mode !== "live") return { ok: false, error: "Notion syncs in live mode. Demo mode uses sample data." };
@@ -173,7 +186,7 @@ export async function testAiModel(): Promise<ActionResult> {
     res.reason === "error"
       ? res.status
         ? `${STATUS_HINT[res.status] ?? "The provider answered with an error."} (HTTP ${res.status})`
-        : "Neither model answered in time. That is on the provider's side (busy or down); the agents use their rules until it is back. Try again in a few minutes."
+        : "Neither model answered in time. That is on the provider's side (busy or down); the bots use their rules until it is back. Try again in a few minutes."
       : res.reason === "refused"
         ? "The model declined the test."
         : res.reason === "invalid"

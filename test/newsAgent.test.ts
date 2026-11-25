@@ -15,7 +15,7 @@ const run = (items: NewsItem[], over: Partial<NewsAgentInput> = {}) =>
   newsAgentReport({ slot: "morning", now, items, failedFeeds: [], feedCount: FEEDS.length, lean: LEAN, shown: { urls: new Set(), titles: [] }, ...over });
 const area = (r: ReturnType<typeof run>, a: string) => r.stories.filter((s) => s.area === a);
 
-describe("News Agent: the same story across outlets", () => {
+describe("News bot: the same story across outlets", () => {
   it("matches differently worded headlines about one story, and not unrelated ones", () => {
     const a = keywords("Senate passes stopgap funding bill to avert shutdown");
     expect(sameStory(a, keywords("Senate approves stopgap bill, averting government shutdown"))).toBe(true);
@@ -36,7 +36,7 @@ describe("News Agent: the same story across outlets", () => {
   });
 });
 
-describe("News Agent: balance and variety", () => {
+describe("News bot: balance and variety", () => {
   it("keeps politics to at most two of three from one side when the other side has stories", () => {
     const r = run([
       item("politics", "Reuters", "Alpha budget talks resume tuesday"),
@@ -96,7 +96,7 @@ describe("News Agent: balance and variety", () => {
   });
 });
 
-describe("News Agent: brief rhythm and failures", () => {
+describe("News bot: brief rhythm and failures", () => {
   const day = [
     item("politics", "Reuters", "Senate passes stopgap funding bill to avert shutdown"),
     item("politics", "AP", "Supreme Court hears tariff challenge arguments"),

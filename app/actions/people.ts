@@ -5,8 +5,11 @@ import { z } from "zod";
 import { audit } from "@/lib/audit";
 import { getContext } from "@/lib/context";
 import { MINUTES_SAVED } from "@/lib/domain/agents";
-import { BODY_LIMIT, parseSlackRef } from "@/lib/domain/comms";
-import { CHANNELS, CIRCLES } from "@/lib/domain/types";
+import { BODY_LIMIT, handOffLink, parseSlackRef } from "@/lib/domain/comms";
+import { CHANNELS, CIRCLES, PEOPLE_CATEGORIES } from "@/lib/domain/types";
+import { board, CATEGORY, hasPlace, sameContact, SLOTS, textReminderLink } from "@/lib/domain/people";
+import { zonedToUtc } from "@/lib/domain/dates";
+import { env } from "@/lib/env";
 import { structured } from "@/lib/ai/model";
 import { takeAiCall } from "@/lib/ai/budget";
 import { Draft, TONES, draftData, draftTask, templateDraft } from "@/lib/ai/prompts";
@@ -181,4 +184,130 @@ export async function deleteSnippet(snippetId: string): Promise<ActionResult> {
   await store.snippets.remove(p.data);
   revalidatePath("/people");
   return { ok: true };
+}
+
+// ---------------------------------------------------------------------------
+// The People tab's six categories (lib/domain/people.ts)
+
+const Place = z.object({ contactId: id, category: z.enum(PEOPLE_CATEGORIES), slot: z.number().int().min(1).max(SLOTS) }).refine((v) => hasPlace(v.category, v.slot), { message: "That category has no such place.", path: ["slot"] });
+
+/** Puts someone already in Atlas into a free place. A taken place is refused, never overwritten. */
+export async function placePerson(input: z.input<typeof Place>): Promise<ActionResult> {
+  const p = Place.safeParse(input);
+  if (!p.success) return { ok: false, error: firstIssue(p.error) };
+  const { store } = await getContext();
+  const contacts = await store.contacts.list();
+  const person = contacts.find((c) => c.id === p.data.contactId);
+  if (!person) return { ok: false, error: "That person is not in Atlas." };
+  if (board(contacts)[p.data.category][p.data.slot - 1]) return { ok: false, error: "That place is taken. Remove that person first." };
+  await store.contacts.update(person.id, { category: p.data.category, slot: p.data.slot, circle: CATEGORY[p.data.category].circle });
+  await audit(store, { actor: "owner", action: "people.place", target: person.id, detail: p.data.category, outcome: "success" });
+  revalidatePath("/people");
+  return { ok: true, message: `${person.name} is in ${CATEGORY[p.data.category].label}.` };
+}
+
+const AddPlace = z.object({
+  name: z.string().trim().min(1).max(120),
+  phone: z.union([z.string().regex(/^\+?[0-9 ()-]{7,20}$/, "use digits, spaces, + ( ) -"), z.literal("")]).default(""),
+  email: z.union([z.email().max(200), z.literal("")]).default(""),
+  category: z.enum(PEOPLE_CATEGORIES),
+  slot: z.number().int().min(1).max(SLOTS),
+}).refine((v) => hasPlace(v.category, v.slot), { message: "That category has no such place.", path: ["slot"] });
+
+/** Adds someone new straight into a free place. */
+export async function addAndPlace(input: z.input<typeof AddPlace>): Promise<ActionResult> {
+  const p = AddPlace.safeParse(input);
+  if (!p.success) return { ok: false, error: firstIssue(p.error) };
+  const { store } = await getContext();
+  const contacts = await store.contacts.list();
+  if (board(contacts)[p.data.category][p.data.slot - 1]) return { ok: false, error: "That place is taken. Remove that person first." };
+  if (sameContact(contacts, { name: p.data.name, phone: p.data.phone || null, email: p.data.email || null })) return { ok: false, error: `${p.data.name} is already in Atlas: pick them from the list instead.` };
+  const made = await store.contacts.create({ name: p.data.name, circle: CATEGORY[p.data.category].circle, email: p.data.email || null, phone: p.data.phone || null, cadenceDays: 0, lastContactAt: null, birthday: null, notes: "", category: p.data.category, slot: p.data.slot });
+  await audit(store, { actor: "owner", action: "people.add", target: made.id, detail: p.data.category, outcome: "success" });
+  revalidatePath("/people");
+  return { ok: true, message: `${p.data.name} is in ${CATEGORY[p.data.category].label}.` };
+}
+
+/** Takes someone out of their place. They stay in Atlas, with everything you sent them. */
+export async function unplacePerson(contactId: string): Promise<ActionResult> {
+  const p = id.safeParse(contactId);
+  if (!p.success) return { ok: false, error: "Bad id" };
+  const { store } = await getContext();
+  await store.contacts.update(p.data, { category: null, slot: null });
+  await audit(store, { actor: "owner", action: "people.unplace", target: p.data, detail: "", outcome: "success" });
+  revalidatePath("/people");
+  return { ok: true };
+}
+
+const Schedule = z.object({
+  contactId: id,
+  day: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  time: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/),
+  body: z.string().trim().min(1).max(BODY_LIMIT.sms),
+  draftedBy: z.enum(["ai", "template", "you"]).default("you"),
+});
+
+/**
+ * Schedules a text: keeps your draft and the time. Atlas never sends it: at that time your phone
+ * gets a notification from Atlas (at its next run) and, if you add it, an event in your own
+ * calendar at the exact minute. Either opens the draft for you to send in Messages.
+ */
+export async function scheduleText(input: z.input<typeof Schedule>): Promise<ActionResult<{ calendar: string }>> {
+  const p = Schedule.safeParse(input);
+  if (!p.success) return { ok: false, error: firstIssue(p.error) };
+  const { store, settings, now } = await getContext();
+  const contact = await store.contacts.get(p.data.contactId);
+  if (!contact) return { ok: false, error: "Contact not found" };
+  if (!contact.phone) return { ok: false, error: `Add ${contact.name}'s phone number first.` };
+  const at = zonedToUtc(p.data.day, p.data.time, settings.timezone);
+  if (at.getTime() < now.getTime() - 60_000) return { ok: false, error: "Pick a time that has not passed." };
+  if (at.getTime() > now.getTime() + 366 * 86_400_000) return { ok: false, error: "Pick a time within the next year." };
+  const made = await store.messages.create({ contactId: contact.id, channel: "sms", subject: "", body: p.data.body, status: "draft", draftedBy: p.data.draftedBy, handedOffAt: null, remindAt: at.toISOString(), remindedAt: null });
+  await audit(store, { actor: "owner", action: "people.schedule-text", target: contact.id, detail: at.toISOString(), outcome: "success" });
+  const site = (env().ATLAS_SITE_URL ?? "https://atlas-optim.vercel.app").replace(/\/$/, "");
+  revalidatePath("/people");
+  return { ok: true, message: `Scheduled. Atlas reminds you then; you send it.`, data: { calendar: textReminderLink(contact.name, p.data.body, { day: p.data.day, time: p.data.time }, settings.timezone, `${site}/people?scheduled=${made.id}#scheduled`) } };
+}
+
+/** Cancels a scheduled text that was not sent. */
+export async function cancelScheduled(messageId: string): Promise<ActionResult> {
+  const p = id.safeParse(messageId);
+  if (!p.success) return { ok: false, error: "Bad id" };
+  const { store } = await getContext();
+  const m = await store.messages.get(p.data);
+  if (!m || m.status !== "draft") return { ok: false, error: "That text is no longer scheduled." };
+  await store.messages.update(m.id, { status: "cancelled" });
+  await audit(store, { actor: "owner", action: "people.cancel-text", target: m.contactId, detail: "", outcome: "success" });
+  revalidatePath("/people");
+  return { ok: true };
+}
+
+/** You opened an invite in your calendar: counts as being in touch. Nothing is sent by Atlas. */
+export async function noteInvite(contactId: string): Promise<ActionResult> {
+  const p = id.safeParse(contactId);
+  if (!p.success) return { ok: false, error: "Bad id" };
+  const { store } = await getContext();
+  await store.contacts.update(p.data, { lastContactAt: new Date().toISOString() });
+  await audit(store, { actor: "owner", action: "people.invite", target: p.data, detail: "opened in calendar", outcome: "success" });
+  revalidatePath("/people");
+  return { ok: true };
+}
+
+/** You are sending a scheduled text now: it opens in Messages, and Atlas records the hand-off. Atlas never sends it. */
+export async function sendScheduled(messageId: string): Promise<ActionResult<{ href: string }>> {
+  const p = id.safeParse(messageId);
+  if (!p.success) return { ok: false, error: "Bad id" };
+  const { store, settings } = await getContext();
+  if (!settings.outboundEnabled) return { ok: false, error: "The kill switch is on. Turn it off in Settings to hand off drafts." };
+  const m = await store.messages.get(p.data);
+  if (!m || m.status !== "draft") return { ok: false, error: "That text is no longer scheduled." };
+  const contact = await store.contacts.get(m.contactId);
+  const link = contact ? handOffLink("sms", contact, "", m.body) : null;
+  if (!contact || !link) return { ok: false, error: "Add their phone number first." };
+  const at = new Date().toISOString();
+  await store.messages.update(m.id, { status: "handed_off", handedOffAt: at });
+  await store.contacts.update(contact.id, { lastContactAt: at });
+  await audit(store, { actor: "owner", action: "message.handoff", target: contact.id, detail: "channel=sms scheduled", outcome: "success" });
+  revalidatePath("/people");
+  return { ok: true, data: { href: link.href } };
 }

@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Careers at Northwind | Jobs</title>
+  <meta property="og:site_name" content="Jobs" />
+  <script type="application/ld+json">{"@context":"https://schema.org","@type":"JobPosting","title":"Forward Deployed Engineer","hiringOrganization":{"@type":"Organization","name":"Northwind Labs"},"description":"<p>Build agentic systems with customers.</p>"}</script>
+  <style>
+    body { font: 14px sans-serif; }
+    .field { margin: 12px 0; } .menu { border: 1px solid #ccc; } .hidden { display: none; }
+    .sr { position: absolute; width: 1px; height: 1px; clip: rect(0 0 0 0); overflow: hidden; }
+    .tiny { width: 2px; }
+  </style>
+</head>
+<body>
+  <!-- A form like the ones Atlas Autofill meets: each widget below copies one a real job site uses. No network, no submit target. -->
+  <form id="app" onsubmit="window.__submitted = (window.__submitted || 0) + 1; return false;">
+    <!-- Fullstack: the question in a div above, an invisible character in the label, "Enter" as placeholder. -->
+    <div class="field"><div><span>First Name</span><span>*</span></div><div><label>&#8203;</label><input id="first" placeholder="Enter" /></div></div>
+    <!-- A hint below the field must not become its label. -->
+    <div class="field"><div><span>LinkedIn URL</span><span>*</span></div><div><input id="linkedin" placeholder="Enter" /><p>Keep in mind that a good LinkedIn profile will match your resume</p></div></div>
+    <!-- Pura (JazzHR): a label that wraps its own list. -->
+    <div class="field"><label>Gender <select id="gender"><option value="">-- No answer --</option><option>Decline to answer</option><option>Female</option><option>Male</option></select></label></div>
+    <!-- Native radios. -->
+    <fieldset class="field"><legend>Are you legally authorized to work in the United States?</legend>
+      <label><input type="radio" name="auth" value="1" /> Yes</label><label><input type="radio" name="auth" value="0" /> No</label></fieldset>
+    <!-- Several checkboxes: select all that apply. -->
+    <fieldset class="field"><legend>Which tools have you used? (Select all that apply)</legend>
+      <label><input type="checkbox" name="tools" value="lg" /> LangGraph</label><label><input type="checkbox" name="tools" value="cc" /> Claude Code</label><label><input type="checkbox" name="tools" value="cu" /> Cursor</label></fieldset>
+    <!-- One consent box. -->
+    <div class="field"><label><input type="checkbox" id="consent" /> I agree to the privacy policy</label></div>
+    <!-- Ashby: Yes/No buttons with no type, outside any form section that would submit (they sit in a div). -->
+    <!-- A hand-made search-and-pick list that opens on mousedown (MUI-like). -->
+    <div class="field"><p>How many years of professional experience do you have?</p>
+      <div class="MuiInputBase-root" id="years-box"><input id="years" role="combobox" aria-controls="years-menu" placeholder="Search" /></div>
+      <ul id="years-menu" role="listbox" class="menu hidden"><li role="option">0</li><li role="option">1</li><li role="option">2</li><li role="option">3</li></ul></div>
+    <!-- Greenhouse (React Select): a few-pixel input whose options only its component knows. -->
+    <div class="field"><label for="agri">Do you have previous agriculture or sustainability experience?</label>
+      <div class="select__control" style="width:300px;height:30px;border:1px solid #ccc"><div class="select__input"><input id="agri" role="combobox" class="tiny" /></div></div></div>
+    <div class="field"><label for="resume">Resume/CV</label><input type="file" id="resume" class="sr" /><button type="button">Attach</button></div>
+    <!-- Gem: radios with no name and no fieldset; each pair sits in its own box under the question. -->
+    <div class="field"><div>Do you currently live in the United States? *</div><div><div><input type="radio" id="gem-us-y" /><label for="gem-us-y">Yes</label></div><div><input type="radio" id="gem-us-n" /><label for="gem-us-n">No</label></div></div></div>
+    <div class="field"><div>Are you willing to relocate?</div><div><div><input type="radio" id="gem-re-y" /><label for="gem-re-y">Yes</label></div><div><input type="radio" id="gem-re-n" /><label for="gem-re-n">No</label></div></div></div>
+    <div class="field"><label for="pw">Password</label><input type="password" id="pw" /></div>
+    <button id="submit">Submit application</button>
+  </form>
+  <div class="field" id="ashby"><label>Will you now or in the future require sponsorship?</label><div><button aria-pressed="false" data-option="yes">Yes</button><button aria-pressed="false" data-option="no">No</button></div></div>
+  <a id="next" href="#step2">Next</a>
+  <script>
+    // The hand-made list: opens on mousedown, picks on click.
+    const years = document.getElementById("years"), menu = document.getElementById("years-menu");
+    document.getElementById("years-box").addEventListener("mousedown", () => menu.classList.remove("hidden"));
+    years.addEventListener("keydown", (e) => { if (e.key === "Escape") menu.classList.add("hidden"); });
+    years.addEventListener("input", () => { menu.classList.remove("hidden"); for (const li of menu.children) li.style.display = li.textContent.startsWith(years.value) ? "" : "none"; });
+    for (const li of menu.children) li.addEventListener("click", () => { years.value = li.textContent; years.dataset.picked = li.textContent; menu.classList.add("hidden"); });
+    // Ashby's buttons toggle aria-pressed.
+    for (const b of document.querySelectorAll("#ashby button")) b.addEventListener("click", () => { for (const o of document.querySelectorAll("#ashby button")) o.setAttribute("aria-pressed", String(o === b)); });
+    // A fake React Select, as the page helper finds it: a fiber whose component knows its options.
+    const agri = document.getElementById("agri");
+    const component = { props: { options: [{ label: "Yes" }, { label: "No" }], isMulti: false }, getOptionLabel: (o) => o.label, selectOption(o) { agri.dataset.picked = o.label; } };
+    agri["__reactFiber$test"] = { stateNode: null, return: { stateNode: component, return: null } };
+    // Count clicks on the submit button: there must be none.
+    document.getElementById("submit").addEventListener("click", () => { window.__submitClicks = (window.__submitClicks || 0) + 1; });
+    window.__done = () => { document.body.insertAdjacentHTML("beforeend", "<p>Thank you for applying!</p>"); };
+  </script>
+</body>
+</html>

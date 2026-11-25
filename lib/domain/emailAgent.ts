@@ -3,7 +3,8 @@
 // the tests all use this same code.
 //
 // On top of the reply / FYI / noise triage, every email gets at most one tag:
-//   job           confirmations, replies, rejections, interview invites, recruiters
+//   job           confirmations, replies, rejections, interview invites, assessments,
+//                 requests for times or for something, offers, recruiters
 //                 (handed to the Career Agent; an interview invite needs a reply)
 //   subscription  one of the subscriptions you track, with its latest update
 //   finance       bills, banks, credit cards: shown as a count
@@ -17,7 +18,7 @@ import { summarizeInbox, type InboxSummary } from "./inbox";
 import type { BriefSlot, InboxItem, Settings } from "./types";
 
 export type EmailTag = "job" | "subscription" | "finance" | "store";
-export type JobKind = "interview" | "reply" | "rejection" | "confirmation" | "recruiter";
+export type JobKind = "interview" | "reply" | "rejection" | "confirmation" | "recruiter" | "assessment" | "scheduling" | "offer" | "info_request";
 
 export interface EmailPrefs {
   /** Stores and senders you keep (never proposed for unsubscribing). */
@@ -97,7 +98,10 @@ export function senderMatches(entry: string, item: Pick<InboxItem, "fromName" | 
 
 const ATS = /(^|\.)(greenhouse\.io|greenhouse-mail\.io|lever\.co|ashbyhq\.com|myworkday\.com|myworkdayjobs\.com|workday\.com|icims\.com|smartrecruiters\.com|jobvite\.com|bamboohr\.com|workablemail\.com|workable\.com|recruitee\.com|teamtailor\.com|breezy\.hr|rippling\.com|dover\.com|gem\.com)$/;
 const JOB_ALERT = /\b(job alert|jobs? for you|new jobs?|recommended jobs?|jobs you may|is hiring)\b/i;
-const INTERVIEW = /\b(interview|phone screen|technical screen|schedule (a |your )?(call|time|chat|conversation)|your availability|next steps)\b/i;
+const INTERVIEW = /\b(interview|phone screen|technical screen|schedule (a |your )?(call|time|chat|conversation)|your availability)\b/i;
+// "Next steps" names no interview: confirmations, assessments and rejections say it too. It is
+// a reply, so the email is still job mail and its text is read, and the text decides the rest.
+const NEXT_STEPS = /\bnext steps\b/i;
 const REJECTION = /\b(unfortunately|not (to )?mov(e|ing) forward|other candidates|regret|no longer (being )?consider|position (has been )?filled|decided to (pursue|move))\b/i;
 const CONFIRMATION = /\b(thanks? (you )?for (applying|your application|your interest)|application (received|submitted|confirmation)|we('ve| have)? (received|got) your( [\w&'’ -]{1,60})? application|we got it|your application (to|for|has been)|demographic survey|self[- ]identification|eeo survey)\b/i;
 const STATUS = /\b(update on your application|application (status|update))\b/i;
@@ -105,13 +109,26 @@ const RECRUITER = /\b(opportunity|opportunities|role|position|opening|recruit(er
 
 /**
  * What kind of job email this is, from its sender and subject. Once the Applications Agent
- * has read its text, a rejection or an interview invite found there wins ("Update on your
- * application" is often a rejection). It only reads job mail and emails from companies you
+ * has read its text, what the rules found there wins ("Update on your application" is often
+ * a rejection): a rejection, an interview invite, an assessment, a request for times, an
+ * offer, a request for something. It only reads job mail and emails from companies you
  * applied to, so a verdict also makes a company's vaguely titled email job mail.
+ *
+ * A subject alone makes an interview invite only while the text is unread (`textVerdict`
+ * unset): then the subject is all there is. Once the text was read and no rule found an
+ * invitation in it ("none"), a subject that says "interview" is a reply: it is still on the
+ * timeline and still pings as "They replied", and the stage moves no further than In review.
+ * A wrong "interview" is worse than a late one (docs/design-pipeline.md, section 1).
+ *
+ * The unread kind is a label for Inbox and the brief, beside the subject it came from. It
+ * moves nothing: the tracker places no email until its text is read (`kindToPlace`,
+ * lib/domain/applications.ts), and the urgent ping waits for the text too.
  */
 export function jobKind(item: Pick<InboxItem, "fromEmail" | "subject" | "category" | "textVerdict"> & { reason?: string }): JobKind | null {
-  if (item.textVerdict === "rejection" || item.textVerdict === "interview") return item.textVerdict;
-  return kindFromHeaders(item);
+  if (item.textVerdict && item.textVerdict !== "none") return item.textVerdict;
+  const kind = kindFromHeaders(item);
+  if (item.textVerdict === "none" && kind === "interview") return "reply";
+  return kind;
 }
 
 function kindFromHeaders(item: Pick<InboxItem, "fromEmail" | "subject" | "category"> & { reason?: string }): JobKind | null {
@@ -124,6 +141,7 @@ function kindFromHeaders(item: Pick<InboxItem, "fromEmail" | "subject" | "catego
   if (REJECTION.test(subject)) return ats || /application|candida/i.test(subject) ? "rejection" : null;
   if (CONFIRMATION.test(subject)) return "confirmation";
   if (STATUS.test(subject)) return "reply";
+  if (NEXT_STEPS.test(subject) && (ats || !bulk)) return "reply";
   // A reply thread about a role, from a person or a hiring system: never a mailing list
   // (a GitHub pull request titled "...resume link per role" is not job mail).
   if ((ats || !bulk) && /^re:/i.test(subject) && /\b(application|role|position|interview|offer)\b/i.test(subject)) return "reply";
@@ -160,7 +178,7 @@ export function tagEmail(item: InboxItem, prefs: EmailPrefs): Pick<TaggedItem, "
   return { tag: null, jobKind: null, matched: null };
 }
 
-/** Tags every email. An interview invite always lands in "needs a reply". */
+/** Tags every email. An interview invite always lands in "needs a reply": one the text says, or one only the subject names while the text is unread. */
 export function tagInbox(items: InboxItem[], prefs: EmailPrefs): TaggedItem[] {
   return items.map((i) => {
     const t = tagEmail(i, prefs);
@@ -217,7 +235,7 @@ export interface JobEmail {
   fromName: string;
   subject: string;
   receivedAt: string;
-  /** The sentence in the email's text that made it a rejection or an interview invite. */
+  /** The sentence in the email's text that decided its kind. */
   quote?: string;
 }
 
@@ -257,8 +275,19 @@ export interface EmailAgentResult {
   report: StandardReport;
 }
 
-const JOB_LABEL: Record<JobKind, string> = { interview: "Interview invite", reply: "Reply", rejection: "Rejection", confirmation: "Application received", recruiter: "Recruiter" };
-const JOB_RANK: Record<JobKind, number> = { interview: 0, reply: 1, recruiter: 2, rejection: 3, confirmation: 4 };
+const JOB_LABEL: Record<JobKind, string> = {
+  interview: "Interview invite",
+  reply: "Reply",
+  rejection: "Rejection",
+  confirmation: "Application received",
+  recruiter: "Recruiter",
+  assessment: "Assessment",
+  scheduling: "Scheduling request",
+  offer: "Offer",
+  info_request: "Asks for something",
+};
+// What wants an answer from you comes first.
+const JOB_RANK: Record<JobKind, number> = { offer: 0, interview: 1, assessment: 2, scheduling: 3, info_request: 4, reply: 5, recruiter: 6, rejection: 7, confirmation: 8 };
 const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
 
 export function emailAgentReport(input: EmailAgentInput): EmailAgentResult {

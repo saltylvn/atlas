@@ -89,7 +89,7 @@ const article = (word: string) => (/^[aeiou]/i.test(word) ? "an" : "a");
 const sentence = (s: string) => (/[.!?]$/.test(s) ? s : `${s}.`);
 
 /** Drafts for the answer bank, by question id. A question with nothing to draft from is left out. */
-export function draftAnswers(resume: ParsedResume, displayName = ""): Record<string, string> {
+export function draftAnswers(resume: ParsedResume): Record<string, string> {
   const drafts: Record<string, string> = {};
   const job = resume.experience[0];
   const projects = resume.projects.slice(0, 3);
@@ -114,11 +114,6 @@ export function draftAnswers(resume: ParsedResume, displayName = ""): Record<str
   const aiBullets = projects.flatMap((p) => p.bullets.filter((b) => AI_SKILL.test(b)).slice(0, 1).map((b) => `${p.parts[0]}: ${b}`));
   if (aiSkills.length || aiBullets.length) drafts.aiExperience = [aiSkills.length ? `Hands-on with ${list(aiSkills)}.` : "", ...aiBullets.slice(0, 3).map(sentence)].filter(Boolean).join(" ");
 
-  if (resume.summary) {
-    const first = resume.summary.split(/(?<=[.!?])\s+/)[0] ?? resume.summary;
-    const proof = lead?.bullets[0] ? ` Recent work: ${lead.parts[0]}. ${lead.bullets[0]}` : "";
-    drafts.proposalOpener = `Hi, I'm ${displayName || "[your name]"}. I can help with {role}. ${sentence(first)}${proof}`.trim();
-  }
   return drafts;
 }
 

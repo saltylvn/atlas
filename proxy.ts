@@ -10,7 +10,9 @@ import { gateRequest } from "@/lib/supabase/proxy";
 export async function proxy(request: NextRequest) {
   const nonce = createNonce();
   const isDev = process.env.NODE_ENV === "development";
-  const csp = buildCsp({ nonce, isDev, supabaseUrl: process.env.NEXT_PUBLIC_SUPABASE_URL });
+  // The resume PDFs are the one thing Atlas shows inside a frame, on its own viewer page.
+  const framedBySelf = request.nextUrl.pathname.startsWith("/api/apply/");
+  const csp = buildCsp({ nonce, isDev, supabaseUrl: process.env.NEXT_PUBLIC_SUPABASE_URL, framedBySelf });
   const headers = { "x-nonce": nonce, "Content-Security-Policy": csp };
 
   const live = Boolean(

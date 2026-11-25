@@ -11,15 +11,15 @@ import { APPROVALS_HREF } from "@/components/ApprovalQueue";
 export const metadata = { title: "Inbox" };
 
 const GROUPS: { key: InboxCategory; title: string; hint: string; color: string }[] = [
-  { key: "reply", title: "Needs a reply", hint: "People you know, direct questions, interview invites", color: "var(--c-orange)" },
+  { key: "reply", title: "Needs a reply", hint: "People you know, direct questions, interview invites", color: "var(--c-warn)" },
   { key: "fyi", title: "For your information", hint: "Worth a glance, no answer needed", color: "var(--c-blue)" },
   { key: "noise", title: "Noise", hint: "Newsletters, notifications, promotions", color: "var(--c-grey)" },
 ];
 
 const TAG: Record<NonNullable<TaggedItem["tag"]>, { label: string; color: string }> = {
-  job: { label: "Job", color: "var(--c-purple)" },
+  job: { label: "Job", color: "var(--c-career)" },
   subscription: { label: "Subscription", color: "var(--c-blue)" },
-  finance: { label: "Finance", color: "var(--c-teal)" },
+  finance: { label: "Finance", color: "var(--c-slate)" },
   store: { label: "Store", color: "var(--c-green)" },
 };
 
@@ -53,13 +53,13 @@ export default async function InboxPage() {
         action={connected && mode === "live" ? <SyncButton /> : undefined}
       />
 
-      {/* The Approval Queue lives in Career. Inbox only says when something waits there. */}
+      {/* The apply queues live in Career. Inbox only says when something waits there. */}
       {waiting > 0 && (
         <Link href={APPROVALS_HREF} className="card card-pad flex items-center gap-3 text-sm hover:bg-surface-2">
           <Icon name="check" size={18} className="text-brand" />
           <span className="min-w-0 flex-1">
-            <span className="font-semibold">{waiting} waiting in your Approval Queue</span>
-            <span className="text-ink-2"> · it is at the top of Career</span>
+            <span className="font-semibold">{waiting} waiting in your apply queues</span>
+            <span className="text-ink-2"> · on the Apply tab in Career</span>
           </span>
           <Icon name="arrow" size={15} className="text-ink-3" />
         </Link>
@@ -70,7 +70,7 @@ export default async function InboxPage() {
           <CardHeader title="Connect Gmail" icon="mail" />
           <p className="text-sm text-ink-2">
             Atlas reads sender, subject and labels from the last three days and sorts each email by rules. Only for job emails, and emails from companies you applied to, does the
-            Applications Agent read the text, for a rejection, an interview invite or the role; it keeps the one sentence that decided it, never the email. It never marks anything read, deletes or sends anything. The only change it makes is archiving an email when you click Archive.
+            Applications bot read the text, by rules, for the kind of answer it is or the role; it keeps the one sentence that decided it, never the email. It never marks anything read, deletes or sends anything. The only change it makes is archiving an email when you click Archive.
           </p>
           <Link href="/connectors" className="btn btn-primary mt-4">
             <Icon name="plug" size={16} /> Set up in Connectors
@@ -85,13 +85,13 @@ export default async function InboxPage() {
               <CardHeader
                 title={`Job emails (${agent.section.jobs!.length})`}
                 icon="jobs"
-                hint="For the Applications Agent: replies, interviews, rejections, recruiters. It reads the text of job emails and of every email from companies you applied to (not their newsletters or promotions), and only those, for a rejection, an interview invite or the role."
+                hint="For the Applications bot: replies, interviews, rejections, recruiters. It reads the text of job emails and of every email from companies you applied to (not their newsletters or promotions), and only those, by rules, for the kind of answer it is (a rejection, an interview invite, an assessment, a request, an offer) or the role."
               />
               <ul className="space-y-2 text-sm">
                 {agent.section.jobs!.map((j, n) => (
                   <li key={n}>
                     <div className="flex flex-wrap items-center gap-2">
-                      <Pill color={j.kind === "interview" ? "var(--c-orange)" : j.kind === "rejection" ? "var(--c-grey)" : "var(--c-purple)"}>{JOB_LABEL[j.kind]}</Pill>
+                      <Pill color={j.kind === "interview" ? "var(--c-warn)" : j.kind === "rejection" ? "var(--c-grey)" : "var(--c-career)"}>{JOB_LABEL[j.kind]}</Pill>
                       <span className="font-medium">{j.fromName}</span>
                       <span className="min-w-0 truncate text-ink-2">{j.subject}</span>
                     </div>

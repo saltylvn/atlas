@@ -1,16 +1,82 @@
 "use client";
 
 import { useActionState, useOptimistic, useState, useTransition } from "react";
+import { hue } from "@/components/ui";
 import type { ActionResult } from "@/app/actions/_shared";
-import { addApplication, decideApproval, draftAnswersFromResume, draftBringForApproval, findPastApplications, rateMatch, saveAnswers, setApplicationRole, setApplicationStatus, setResumeLink, setSkills, matchFit } from "@/app/actions/career";
+import { addApplication, decideApproval, draftAnswersFromResume, markNotAGoodFit, draftBringForApproval, findMoreJobs, findPastApplications, rateMatch, readPostingsNow, saveAnswers, setApplicationFlags, setApplicationRole, placeJobMail, setApplicationStatus, setResumeLink, setSkills, matchFit } from "@/app/actions/career";
 import type { FitResult } from "@/lib/knowledge/jobFit";
 import { ANSWER_BANK, BANK_TRACK_LABEL, type BankTrack } from "@/lib/domain/careerPrep";
 import { BOARD } from "@/lib/domain/applications";
+import { MORE_BUTTON } from "@/lib/domain/moreMatches";
 import { Icon } from "../Icon";
+import { useCloseItem } from "./QueueList";
+
+/**
+ * The search button above Good fits. It sets the Career desk to work, now: the Scout reads
+ * the boards, the Analyst refreshes its report, and the Applications Agent adds up to 5 new
+ * jobs to the Good fits list below.
+ */
+export function FindMoreButtons() {
+  const [pending, start] = useTransition();
+  const [note, setNote] = useState<{ ok: boolean; text: string } | null>(null);
+  const find = () =>
+    start(async () => {
+      setNote(null);
+      const res = await findMoreJobs();
+      setNote(res.ok ? { ok: true, text: res.message ?? "Done." } : { ok: false, text: res.error });
+    });
+  return (
+    <div className="space-y-2">
+      <button type="button" className="btn btn-primary justify-start text-left" disabled={pending} aria-busy={pending} onClick={find}>
+        <Icon name="refresh" size={16} /> {pending ? "Scout, Analyst and Applications are working…" : MORE_BUTTON}
+      </button>
+      {note && (
+        <p role="status" className={`text-sm break-words ${note.ok ? "text-ink-2" : "text-bad"}`}>
+          {note.text}
+        </p>
+      )}
+    </div>
+  );
+}
+
+/**
+ * "Read postings now": has the Applications Agent read the postings of the jobs waiting in
+ * the queue, and add what each asks for to its kit. Atlas also does this by itself after a
+ * 👍 and at each sync; the button is for when you do not want to wait.
+ */
+export function ReadPostingsButton({ count }: { count: number }) {
+  const [pending, start] = useTransition();
+  const [note, setNote] = useState<{ ok: boolean; text: string } | null>(null);
+  return (
+    <div className="mb-2 flex flex-wrap items-center gap-x-3 gap-y-2">
+      <button
+        type="button"
+        className="btn btn-ghost btn-sm"
+        disabled={pending}
+        aria-busy={pending}
+        onClick={() =>
+          start(async () => {
+            setNote(null);
+            const res = await readPostingsNow();
+            setNote(res.ok ? { ok: true, text: res.message ?? "Done." } : { ok: false, text: res.error });
+          })
+        }
+      >
+        <Icon name="external" size={14} /> {pending ? "Reading…" : `Read ${count === 1 ? "the posting" : `${count} postings`} now`}
+      </button>
+      {note && (
+        <span role="status" className={`text-xs ${note.ok ? "text-ink-2" : "text-bad"}`}>
+          {note.text}
+        </span>
+      )}
+    </div>
+  );
+}
 
 /**
  * Thumbs on a match. Up: you want it, so its apply kit goes to your apply queue (top of
- * Career). Tap it again, or thumbs down, and a kit still waiting is taken back.
+ * Career). Tap it again, or thumbs down, and a kit still waiting is taken back. Perfect fit
+ * is a stronger thumbs up: first in its queue, more like it found, and the Career Mentor's attention.
  */
 export function MatchButtons({ id, rating, queued }: { id: string; rating: number; queued: boolean }) {
   const [pending, start] = useTransition();
@@ -42,6 +108,17 @@ export function MatchButtons({ id, rating, queued }: { id: string; rating: numbe
       </button>
       <button
         type="button"
+        aria-pressed={value === 2}
+        aria-label={value === 2 ? "Perfect fit: a job you most want. Tap to take it back" : "Perfect fit: a job you most want"}
+        title="Perfect fit: first in your apply queue, more jobs like it, and the Career Mentor plans how to land it"
+        disabled={pending}
+        onClick={() => rate(2)}
+        className={`btn btn-ghost btn-sm ${value === 2 ? "!border-brand !text-brand" : ""}`}
+      >
+        <span aria-hidden="true">★</span> Perfect fit
+      </button>
+      <button
+        type="button"
         aria-pressed={value === -1}
         aria-label="Not a fit"
         title="Not a fit: fewer like it, and out of your apply queue"
@@ -61,15 +138,40 @@ export function MatchButtons({ id, rating, queued }: { id: string; rating: numbe
   );
 }
 
-/** Approve, mark submitted, or reject an Approval Queue item. */
+/** Approve, mark submitted, or reject an apply queue item. */
 export function ApprovalButtons({ id, url, kind = "application" }: { id: string; url: string; kind?: string }) {
   const [pending, start] = useTransition();
   const [note, setNote] = useState<{ ok: boolean; text: string } | null>(null);
+  // In the Apply Queue: a job you close out leaves the list where it is, and the page keeps your place.
+  const closeItem = useCloseItem();
+  const done = (r: { ok: true; message?: string } | { ok: false; error: string }, said: string) => {
+    if (r.ok && closeItem) closeItem(said);
+    else setNote(r.ok ? { ok: true, text: r.message ?? "Done" } : { ok: false, text: r.error });
+  };
   const decide = (d: "submitted" | "approve" | "reject") =>
     start(async () => {
       const r = await decideApproval(id, d);
-      setNote(r.ok ? { ok: true, text: r.message ?? "Done" } : { ok: false, text: r.error });
+      done(r, d === "submitted" ? "Marked submitted: on the Tracker as Applied." : d === "approve" ? "Kept for later: on the board as To submit." : "Closed.");
     });
+  // Asked after you applied on a job site (the extension's "Mark submitted"): one question, yes first.
+  if (kind === "applied-check") {
+    return (
+      <div className="flex flex-wrap items-center gap-2">
+        <button type="button" className="btn btn-primary" disabled={pending} onClick={() => decide("submitted")}>
+          <Icon name="check" size={16} /> Yes, I applied
+        </button>
+        <a href="/career#approvals" className="btn btn-ghost">
+          Not yet
+        </a>
+        {url && (
+          <a href={url} target="_blank" rel="noopener" className="btn btn-ghost">
+            <Icon name="external" size={14} /> Open the posting
+          </a>
+        )}
+        {note && <span className={`text-sm ${note.ok ? "text-ink-2" : "text-bad"}`}>{note.text}</span>}
+      </div>
+    );
+  }
   if (kind === "follow-up") {
     return (
       <div className="flex flex-wrap items-center gap-2">
@@ -96,10 +198,62 @@ export function ApprovalButtons({ id, url, kind = "application" }: { id: string;
       <button type="button" className="btn btn-ghost btn-sm" disabled={pending} onClick={() => decide("approve")}>
         Approve for later
       </button>
-      <button type="button" className="btn btn-ghost btn-sm" disabled={pending} onClick={() => decide("reject")}>
-        Reject
+      <button
+        type="button"
+        className="btn btn-ghost btn-sm"
+        disabled={pending}
+        title="Not a good fit: out of your apply queue and Tracker for good, and Atlas shows fewer like it"
+        onClick={() =>
+          start(async () => {
+            const r = await markNotAGoodFit(id);
+            done(r, "Not a good fit: closed out. Atlas will show fewer like it.");
+          })
+        }
+      >
+        <span aria-hidden="true">👎</span> Not a Good Fit
       </button>
       {note && <span className={`text-xs ${note.ok ? "text-ink-2" : "text-bad"}`}>{note.text}</span>}
+    </div>
+  );
+}
+
+/**
+ * Tailored and Warm on one application (Step 0 of the agent plan): saved as you tick. The
+ * funnel on the Tracker compares reply rates by both, so marking them sharpens what it learns.
+ */
+export function ApplicationFlags({ id, tailored, warm }: { id: string; tailored: boolean | null; warm: boolean | null }) {
+  const [pending, start] = useTransition();
+  const [value, setValue] = useState({ tailored, warm });
+  const [note, setNote] = useState<{ ok: boolean; text: string } | null>(null);
+  const flip = (key: "tailored" | "warm", on: boolean) => {
+    const next = { ...value, [key]: on };
+    setValue(next);
+    start(async () => {
+      const r = await setApplicationFlags(id, next);
+      setNote(r.ok ? { ok: true, text: "Saved" } : { ok: false, text: r.error });
+    });
+  };
+  const box = (key: "tailored" | "warm", label: string, hint: string) => (
+    <label className="inline-flex min-h-11 cursor-pointer items-center gap-2 text-sm">
+      <input type="checkbox" className="size-5 accent-[var(--brand)]" checked={value[key] === true} disabled={pending} onChange={(e) => flip(key, e.target.checked)} aria-describedby={`${key}-${id}`} />
+      <span>
+        {label}
+        <span id={`${key}-${id}`} className="block text-xs text-ink-3">
+          {value[key] === null ? "Not marked yet. " : ""}
+          {hint}
+        </span>
+      </span>
+    </label>
+  );
+  return (
+    <div className="flex flex-wrap items-start gap-x-6 gap-y-2">
+      {box("tailored", "Tailored", "You changed the resume or wrote a note for this job")}
+      {box("warm", "Warm", "You knew someone there, or were referred")}
+      {note && (
+        <span role="status" className={`self-center text-xs ${note.ok ? "text-ink-3" : "text-bad"}`}>
+          {note.text}
+        </span>
+      )}
     </div>
   );
 }
@@ -210,10 +364,6 @@ export function AddApplicationForm() {
       <input name="role" required maxLength={200} placeholder="Role" className="field" />
       <input name="url" type="url" maxLength={600} placeholder="Job link (optional)" className="field" />
       <input name="payText" maxLength={40} placeholder="Pay (optional)" className="field" />
-      <select name="type" className="field" defaultValue="full-time">
-        <option value="full-time">Full-time</option>
-        <option value="gig">Gig / contract</option>
-      </select>
       <select name="status" className="field" defaultValue="applied">
         {BOARD.map((c) => (
           <option key={c.status} value={c.status}>
@@ -303,7 +453,7 @@ export function AnswerBankForm({ saved }: { saved: Record<string, string> }) {
   const [drafting, startDraft] = useTransition();
   const [note, setNote] = useState<{ ok: boolean; text: string } | null>(null);
   const written = ANSWER_BANK.filter((q) => (values[q.id] ?? "").trim()).length;
-  const tracks: BankTrack[] = ["contact", "common", "full-time", "gig"];
+  const tracks: BankTrack[] = ["contact", "common"];
   return (
     <form
       className="space-y-4"
@@ -345,7 +495,7 @@ export function AnswerBankForm({ saved }: { saved: Record<string, string> }) {
             <label key={q.id} className="block">
               <span className="label flex flex-wrap items-center gap-2">
                 {q.question.replace("{company}", "[company]")}
-                {drafted.has(q.id) && <span className="pill text-[0.7rem]" style={{ color: "var(--c-purple)" }}>Draft: review before saving</span>}
+                {drafted.has(q.id) && <span className="pill text-[0.7rem]" style={hue("var(--c-ai)")}>Draft: review before saving</span>}
               </span>
               {q.hint && <span className="mb-1 block text-xs text-ink-3">{q.hint}</span>}
               <textarea
@@ -470,7 +620,7 @@ export function SkillPicker({ groups, have }: { groups: { group: string; skills:
   );
 }
 
-const FIT_COLOR: Record<string, string> = { strong: "var(--c-green)", partial: "var(--c-orange)", weak: "var(--c-red)", unknown: "var(--c-grey)" };
+const FIT_COLOR: Record<string, string> = { strong: "var(--c-green)", partial: "var(--c-warn)", weak: "var(--c-red)", unknown: "var(--c-grey)" };
 
 /** "How do I fit?": searches your resumes for this job and shows the fit, the gaps and which resume to send. */
 export function FitButton({ id }: { id: string }) {
@@ -551,5 +701,36 @@ export function FitButton({ id }: { id: string }) {
         </div>
       )}
     </>
+  );
+}
+
+/**
+ * For a job email the tracker could not place: one button per application it could be
+ * about, and one to log it as a new application. Your answer is where the email goes.
+ */
+export function PlaceMailButtons({ messageId, company, choices }: { messageId: string; company: string; choices: { id: string; role: string; stage: string }[] }) {
+  const [pending, start] = useTransition();
+  const [note, setNote] = useState<{ ok: boolean; text: string } | null>(null);
+  const place = (choice: string) =>
+    start(async () => {
+      const r = await placeJobMail(messageId, choice);
+      setNote(r.ok ? { ok: true, text: r.message ?? "Done" } : { ok: false, text: r.error });
+    });
+  return (
+    <div className="flex flex-wrap items-center gap-2" role="group" aria-label={`Which ${company} application this email is about`}>
+      {choices.map((c) => (
+        <button key={c.id} type="button" className="btn btn-ghost btn-sm !h-auto min-h-[44px] max-w-full text-left whitespace-normal sm:min-h-[32px]" disabled={pending} onClick={() => place(c.id)}>
+          {c.role} · {c.stage}
+        </button>
+      ))}
+      <button type="button" className="btn btn-ghost btn-sm min-h-[44px] sm:min-h-[32px]" disabled={pending} onClick={() => place("new")}>
+        <Icon name="plus" size={14} /> A new application
+      </button>
+      {note && (
+        <span role="status" className={`text-xs ${note.ok ? "text-ink-2" : "text-bad"}`}>
+          {note.text}
+        </span>
+      )}
+    </div>
   );
 }

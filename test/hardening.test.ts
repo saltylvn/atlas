@@ -86,13 +86,26 @@ describe("Every entry point is gated", () => {
     const open_: string[] = [];
     for (const file of walk("app").filter((f) => /route\.ts$/.test(f))) {
       const src = read(file);
-      const gated = /getContext\(\)|bearerMatches\(|handleCron\(|handleSync\(|exchangeCodeForSession\(/.test(src);
+      const gated = /getContext\(\)|bearerMatches\(|handleCron\(|handleSync\(|handleWatch\(|exchangeCodeForSession\(|extensionContext\(|decideMcp\(/.test(src);
       if (!gated) open_.push(file);
     }
-    // Liveness only: it reveals the mode and nothing else.
-    expect(open_).toEqual(["app/api/health/route.ts"]);
+    // Liveness only: it reveals the mode and nothing else. And the MCP endpoint's OAuth metadata
+    // (RFC 9728): public by design, it names the authorization server and holds no data.
+    // And the public demo MCP connector: fictional data only, and it may never import a real data source.
+    expect(open_).toEqual(["app/.well-known/oauth-protected-resource/[[...rest]]/route.ts", "app/api/health/route.ts", "app/api/mcp-demo/route.ts"]);
+    for (const f of ["app/api/mcp-demo/route.ts", "lib/mcp/showcase.ts"]) expect(read(f), f).not.toMatch(/@\/lib\/owner|lib\/supabase|createSupabaseStore|createServiceClient|getContext|demoStore\(/);
     expect(read("lib/agents/cron.ts")).toContain("bearerMatches(request.headers.get(\"authorization\"), env().CRON_SECRET)");
     expect(read("lib/agents/sync.ts")).toContain("bearerMatches(request.headers.get(\"authorization\"), env().CRON_SECRET)");
+    // The 15-minute watch checks its own secret, never the scheduler's.
+    expect(read("lib/agents/watch.ts")).toContain("bearerMatches(request.headers.get(\"authorization\"), e.ATLAS_WATCH_SECRET)");
+    // The extension's routes check its key before anything else they do.
+    const door = read("lib/extensionApi.ts");
+    expect(door).toContain("if (!keyMatches(header, settings.extensionKey)) {");
+    for (const file of walk("app/api/extension").filter((f) => f.endsWith("route.ts"))) {
+      const src = read(file);
+      expect(src.indexOf("await extensionContext("), file).toBeGreaterThan(-1);
+      expect(src.indexOf("await extensionContext("), file).toBeLessThan(src.indexOf("request.json(") === -1 ? Infinity : src.indexOf("request.json("));
+    }
   });
 
   it("checks the keep-alive token before counting the request against the rate limit", () => {
@@ -113,7 +126,10 @@ describe("Every entry point is gated", () => {
 describe("Headers, secrets and the build pipeline", () => {
   it("sends the security headers on every response and never caches pages", async () => {
     const rules = await nextConfig.headers!();
-    const all = Object.fromEntries(rules.flatMap((r) => r.headers.map((h) => [h.key, h.value])));
+    // Every response: the rule for all paths. The one exception is checked right below.
+    const all = Object.fromEntries(rules.filter((r) => r.source !== "/api/apply/:path*").flatMap((r) => r.headers.map((h) => [h.key, h.value])));
+    // Only the resume PDFs may be framed, and only by Atlas itself (its viewer page has the Back button).
+    expect(rules.filter((r) => r.headers.some((h) => h.key === "X-Frame-Options" && h.value !== "DENY"))).toEqual([{ source: "/api/apply/:path*", headers: [{ key: "X-Frame-Options", value: "SAMEORIGIN" }] }]);
     expect(all["Strict-Transport-Security"]).toContain("max-age=63072000");
     expect(all).toMatchObject({ "X-Content-Type-Options": "nosniff", "X-Frame-Options": "DENY", "Referrer-Policy": "no-referrer", "Cross-Origin-Opener-Policy": "same-origin" });
     expect(all["X-Robots-Tag"]).toContain("noindex");

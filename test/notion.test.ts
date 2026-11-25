@@ -49,7 +49,7 @@ describe("Notion: reading the Resumes database", () => {
   it("treats the Master Resume row as a resume, never a role", () => {
     const sheet = [row("Master Resume", 1, { share: "https://drive.google.com/master" }), row("AI Engineer", 2), row("AI + Automation Engineer", 3), row("GTM Engineer", 8)];
     expect(rolesFromNotion(sheet).map((r) => r.name)).toEqual(["AI Engineer", "AI + Automation Engineer", "GTM Engineer"]);
-    expect(notionRolesPatch(rolesFromNotion(sheet), {})?.careerRoles[0]).toBe("AI Engineer");
+    expect(notionRolesPatch(rolesFromNotion(sheet), {})?.roles).toBe(3);
     // Its link is kept as the master resume: the Share link, or the row's page when a file is attached.
     expect(masterResumeFromNotion(sheet)).toBe("https://drive.google.com/master");
     expect(masterResumeFromNotion([row("Master Resume", 1, { files: [{ name: "master.pdf" }], url: "https://www.notion.so/master-row" })])).toBe("https://www.notion.so/master-row");
@@ -73,19 +73,45 @@ describe("Notion: reading the Resumes database", () => {
     expect(rolesFromNotion([row("AI Engineer", 1), row("ai engineer", 2)])).toHaveLength(1);
   });
 
-  it("turns rows into Settings: Notion's order, Notion's resumes, your pasted links kept", () => {
-    const patch = notionRolesPatch(rolesFromNotion(RESULTS), { careerRoles: ["Solutions Engineer"], careerResumes: { "GTM Engineer": "https://drive.google.com/mine", "Solutions Engineer": "https://old.example/se" } })!;
-    expect(patch.careerRoles[0]).toBe("Forward Deployed Engineer");
-    expect(patch.careerRoles).toHaveLength(7);
+  it("turns rows into Settings: Notion's resumes and your pasted links, never the role order", () => {
+    const patch = notionRolesPatch(rolesFromNotion(RESULTS), { careerResumes: { "GTM Engineer": "https://drive.google.com/mine", "Solutions Engineer": "https://old.example/se" } })!;
+    // Atlas owns which roles you target and their order: a sync carries no role list.
+    expect(patch).not.toHaveProperty("careerRoles");
+    expect(patch.roles).toBe(7);
     expect(patch.careerResumes).toEqual({
       "Forward Deployed Engineer": "https://drive.google.com/file/d/abc/view",
       // An attached file links to the row's page: Notion's file URLs expire within the hour.
       "Solutions Engineer": "https://www.notion.so/Solutions-Engineer",
+      // A row with neither links its own page, where Atlas mirrors the resume's text.
+      "AI Workflow Engineer": "https://www.notion.so/AI-Workflow-Engineer",
+      "AI Engineer": "https://www.notion.so/AI-Engineer",
+      "Software Engineer": "https://www.notion.so/Software-Engineer",
+      "AI Automation Engineer": "https://www.notion.so/AI-Automation-Engineer",
       "GTM Engineer": "https://drive.google.com/mine",
     });
-    expect(patch).toMatchObject({ resumes: 2, changed: true });
+    expect(patch).toMatchObject({ resumes: 6, changed: true });
     expect(notionRolesPatch(rolesFromNotion(RESULTS), patch)?.changed).toBe(false);
     expect(notionRolesPatch([], {})).toBeNull();
+  });
+
+  it("files a resume under the role its row's old name folded into; a row named for the role wins", () => {
+    const share = (s: string) => ({ share: `https://drive.google.com/${s}` });
+    const folded = notionRolesPatch(rolesFromNotion([row("AI + Automation Engineer", 1, share("auto")), row("GTM Engineer", 2, share("gtm"))]), {})!;
+    expect(folded.careerResumes).toEqual({ "AI Automation Engineer": "https://drive.google.com/auto" });
+    const exact = notionRolesPatch(rolesFromNotion([row("GTM Engineer", 1, share("gtm")), row("AI Automation Engineer", 5, share("own"))]), {})!;
+    expect(exact.careerResumes).toEqual({ "AI Automation Engineer": "https://drive.google.com/own" });
+  });
+
+  it("reads Notion's \"Engineering\" row names as the roles, links each row's page, and keeps a link you pasted", () => {
+    const sheet = [row("AI Automation Engineering", 2), row("AI Forward Deployed Engineering", 7), row(" AI Project Manager", 8)];
+    const patch = notionRolesPatch(rolesFromNotion(sheet), { careerResumes: { "AI Project Manager": "https://drive.google.com/pm", "AI Automation Engineer": "https://app.notion.com/p/old-page" } })!;
+    expect(patch.careerResumes).toEqual({
+      // An old Notion page link is replaced by the row's page.
+      "AI Automation Engineer": "https://www.notion.so/AI-Automation-Engineering",
+      "AI Forward Deployed Engineer": "https://www.notion.so/AI-Forward-Deployed-Engineering",
+      "AI Project Manager": "https://drive.google.com/pm",
+    });
+    expect(masterResumeFromNotion([row("Master Resume", 1, { url: "https://www.notion.so/master" })])).toBe("https://www.notion.so/master");
   });
 });
 
@@ -112,16 +138,17 @@ const HAPPY = {
 describe("Notion: syncing", () => {
   const NOW = new Date("2026-11-13T21:00:00Z");
 
-  it("reads Notion read-only and copies the order and resumes into Settings", async () => {
+  it("reads Notion read-only and copies the resumes into Settings, leaving your roles alone", async () => {
     const { syncNotion } = await import("@/lib/connections/notion");
     const calls = notionAnswers(HAPPY);
     const state = seedState(NOW);
     const store = createMemoryStore(state);
+    const before = (await store.settings.get()).careerRoles;
     const res = (await syncNotion(store, await store.settings.get(), NOW))!;
-    expect(res.sync).toEqual({ at: NOW.toISOString(), ok: true, workspace: "Tyler's Notion", roles: 7, resumes: 2, master: false, message: "" });
+    expect(res.sync).toEqual({ at: NOW.toISOString(), ok: true, workspace: "Tyler's Notion", roles: 7, resumes: 6, master: false, message: "" });
     expect(res.changed).toBe(true);
     const saved = await store.settings.get();
-    expect(saved.careerRoles?.[0]).toBe("Forward Deployed Engineer");
+    expect(saved.careerRoles).toEqual(before);
     expect(saved.careerResumes?.["Forward Deployed Engineer"]).toBe("https://drive.google.com/file/d/abc/view");
     expect(saved.notion?.ok).toBe(true);
 
@@ -156,7 +183,7 @@ describe("Notion: syncing", () => {
     expect((await syncNotion(store, await store.settings.get(), NOW))!.sync.message).toContain("rate-limiting");
 
     notionAnswers({ ...HAPPY, [`/data_sources/${DS}/query`]: { body: { results: [] } } });
-    expect((await syncNotion(store, await store.settings.get(), NOW))!.sync.message).toContain("no roles");
+    expect((await syncNotion(store, await store.settings.get(), NOW))!.sync.message).toContain("no rows");
 
     const after = await store.settings.get();
     expect(after.careerRoles).toEqual(["AI Engineer"]);
@@ -197,9 +224,8 @@ describe("Notion: syncing", () => {
     const res = (await syncNotion(store, await store.settings.get(), NOW))!;
     expect(res.sync).toMatchObject({ ok: true, roles: 2, resumes: 3, master: true });
     const saved = await store.settings.get();
-    expect(saved.careerRoles).toEqual(["AI Engineer", "GTM Engineer"]);
     expect(saved.careerMasterResume).toBe("https://www.notion.so/master");
-    expect(Object.keys(saved.careerResumes ?? {})).toEqual(["AI Engineer", "GTM Engineer"]);
+    expect(Object.keys(saved.careerResumes ?? {})).toEqual(["AI Engineer", "AI Automation Engineer"]);
   });
 
   it("still syncs when Notion won't say which workspace it is (no user information)", async () => {
@@ -207,8 +233,8 @@ describe("Notion: syncing", () => {
     const store = createMemoryStore(seedState(NOW));
     notionAnswers({ ...HAPPY, "/users/me": { status: 403, body: { object: "error", code: "restricted_resource" } } });
     const res = (await syncNotion(store, await store.settings.get(), NOW))!;
-    expect(res.sync).toMatchObject({ ok: true, workspace: "", roles: 7, resumes: 2 });
-    expect((await store.settings.get()).careerRoles?.[0]).toBe("Forward Deployed Engineer");
+    expect(res.sync).toMatchObject({ ok: true, workspace: "", roles: 7, resumes: 6 });
+    expect((await store.settings.get()).careerResumes?.["Forward Deployed Engineer"]).toBe("https://drive.google.com/file/d/abc/view");
   });
 
   it("says exactly why Notion refused, and what to do", async () => {
