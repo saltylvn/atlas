@@ -20,9 +20,9 @@ This public repo is a clean-history copy of the code as of 18 November 2026. The
   - **Planner:** proposes three moves for my week, each citing its numbers; I approve before anything reaches my calendar.
   - **Nudger:** rewrites a waiting application follow-up with one specific, cited reason to reply.
   - A night shift runs the Researcher, Tailor and Nudger while I sleep, and the Planner on Sunday.
-- **An MCP server for Claude:** Claude connects over OAuth 2.1 with PKCE and gets 10 read-only tools (apply queue, job snapshot, applications, funnel, market, proof project, interview prep, a spoken practice interview, weekly plan and search over my resumes), so I can use Atlas from any Claude app, by voice. Every call is audited and rate-limited.
+- **An MCP server for Claude:** Claude connects over OAuth 2.1 with PKCE and gets 11 read-only tools (apply queue, job snapshot, applications, funnel, market, proof project, interview prep, a spoken practice interview, weekly plan, my GitHub projects and search over my resumes and projects), so I can use Atlas from any Claude app, by voice. Every call is audited and rate-limited.
 - **Google Calendar** over OAuth, with events at their real length on the plan.
-- **By the numbers:** 1,620 tests, 44 tables with row-level security, 47 migrations and 200 merged pull requests.
+- **By the numbers:** 1,630 tests, 44 tables with row-level security, 48 migrations and 200+ merged pull requests.
 
 ## What I built
 
