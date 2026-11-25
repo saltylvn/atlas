@@ -50,7 +50,7 @@ export function WeeklyReviewCard({ review: r, recs, label }: { review: WeeklyRev
           <Delta n={r.timeSaved.delta} unit="m" />
         </Tile>
         <Tile label="Tasks done / planned" value={`${r.tasks.completed}/${r.tasks.planned}`}>
-          <Meter value={r.tasks.completed} max={Math.max(1, r.tasks.planned)} color={r.tasks.rate >= 70 ? "var(--c-green)" : "var(--c-orange)"} />
+          <Meter value={r.tasks.completed} max={Math.max(1, r.tasks.planned)} color={r.tasks.rate >= 70 ? "var(--c-green)" : "var(--c-warn)"} />
           <span className="mt-1 block">
             {r.tasks.rate}% · {minutesLabel(r.tasks.completedMin)} of {minutesLabel(r.tasks.plannedMin)}
           </span>
@@ -58,10 +58,10 @@ export function WeeklyReviewCard({ review: r, recs, label }: { review: WeeklyRev
         <Tile label="Overdue debt" value={String(r.overdue.count)} color={r.overdue.count > 0 ? "var(--c-red)" : undefined}>
           {r.overdue.count > 0 ? `${minutesLabel(r.overdue.minutes)} · oldest ${r.overdue.oldestDays}d` : "All clear"}
         </Tile>
-        <Tile label="Keep-in-touch debt" value={String(r.keepInTouch.due)} color={r.keepInTouch.due > 0 ? "var(--c-orange)" : undefined}>
+        <Tile label="Keep-in-touch debt" value={String(r.keepInTouch.due)} color={r.keepInTouch.due > 0 ? "var(--c-warn)" : undefined}>
           {r.keepInTouch.due > 0 ? <span className="line-clamp-2">{r.keepInTouch.names.join(", ")}</span> : "Everyone is current"}
         </Tile>
-        <Tile label="Job pipeline" value={p ? `${p.appliedThisWeek} applied` : "No data"} color="var(--c-pink)" className="col-span-2 md:col-span-1">
+        <Tile label="Job pipeline" value={p ? `${p.appliedThisWeek} applied` : "No data"} color="var(--c-career)" className="col-span-2 md:col-span-1">
           {p ? (
             <>
               <span className="block">

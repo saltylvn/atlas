@@ -6,6 +6,7 @@ import type {
   AgentRunEvent,
   AgentStateRecord,
   Application,
+  ApplicationEvent,
   Approval,
   AuditEvent,
   ConnectionInfo,
@@ -15,6 +16,10 @@ import type {
   JobMatch,
   JobWatch,
   LedgerEntry,
+  NewApplicationEvent,
+  NewNotice,
+  Notice,
+  NoticeTier,
   OutboundMessage,
   Project,
   PushSubscriptionRecord,
@@ -24,14 +29,22 @@ import type {
   StoredBrief,
   Snippet,
   Task,
+  TextVerdict,
 } from "@/lib/domain/types";
 import type { KnowledgeChunk, KnowledgeSource, ManifestRow } from "@/lib/domain/knowledge";
 import type { MarketPosting, NewMarketPosting, StoredMarketReport } from "@/lib/domain/market";
+import type { DailyRow, RunQuality, TechPosting } from "@/lib/domain/techMarket";
+import type { BenchmarkPoint } from "@/lib/domain/benchmarks";
 import type { StoredQaReport } from "@/lib/domain/qa";
 import type { MentorInsight, NewInsight } from "@/lib/domain/mentor";
+import type { ListedEvent } from "@/lib/domain/pipelineList";
 import type { NewPortfolioRepo, PortfolioRepo } from "@/lib/domain/portfolio";
 import type { NewRoleProposal, RoleProposal } from "@/lib/domain/roleOutlook";
+import type { NewRoleProfile, RoleProfile } from "@/lib/domain/roleProfile";
+import type { NewRoleSkillStat, RoleSkillStat } from "@/lib/domain/skillStats";
+import type { NewRoleDescription, RoleDescription } from "@/lib/domain/roleDescription";
 import type { SearchLists } from "@/lib/domain/retrieval";
+import type { AgentState, Lesson } from "@/lib/domain/agentState";
 
 type Generated = "id" | "createdAt";
 
@@ -49,6 +62,11 @@ export interface Store {
   tasks: Collection<Task>;
   goals: Collection<Goal>;
   contacts: Collection<Contact>;
+  /** Your phone's contact list, imported in one go (the import Shortcut). */
+  phonebook: {
+    /** Adds many contacts at once; returns how many were added. */
+    addMany(rows: Omit<Contact, "id" | "createdAt">[]): Promise<number>;
+  };
   messages: Collection<OutboundMessage>;
   routines: Collection<Routine>;
   renewals: Collection<Renewal>;
@@ -63,7 +81,13 @@ export interface Store {
     /** Forgets messages that were archived in Gmail. Needs the owner-scoped service store in live mode. */
     remove(messageIds: string[]): Promise<void>;
     /** Records what a job email's text said (verdict and quote only). Needs the owner-scoped service store in live mode. */
-    setReadings(rows: { messageId: string; verdict: "interview" | "rejection" | "none"; quote: string; role?: string }[]): Promise<void>;
+    setReadings(rows: { messageId: string; verdict: TextVerdict; quote: string; role?: string }[]): Promise<void>;
+    /**
+     * Marks an email as handed to the AI model, and only if it never was: the database checks
+     * and writes in one step. True when this call marked it; false means it was already read
+     * once and must not be sent again. Needs the owner-scoped service store in live mode.
+     */
+    claimForModel(messageId: string, at: string): Promise<boolean>;
   };
   connections: {
     /** Connected accounts, without tokens. */
@@ -113,17 +137,59 @@ export interface Store {
     /** Every key ever stored, so the agent never repeats a match. */
     keys(): Promise<Set<string>>;
     /** Matches you rated, for ranking. */
-    rated(): Promise<Pick<JobMatch, "role" | "company" | "source" | "rating">[]>;
+    rated(): Promise<Pick<JobMatch, "role" | "company" | "source" | "rating" | "skills">[]>;
+    /** Jobs you marked Perfect fit, newest first. */
+    perfect(): Promise<JobMatch[]>;
     get(id: string): Promise<JobMatch | null>;
     /** Stores new matches (keys already stored are skipped) and returns what was stored. */
     add(rows: Omit<JobMatch, "id" | "createdAt">[]): Promise<JobMatch[]>;
     update(id: string, patch: Partial<Pick<JobMatch, "rating" | "status">>): Promise<void>;
   };
   applications: Collection<Application>;
+  /**
+   * The Pipeline's timeline (docs/design-pipeline.md): one row per thing that happened to an
+   * application. Append-only: there is deliberately no update or delete.
+   */
+  applicationEvents: {
+    /** Adds events. One already stored (same source and kind) is skipped; returns only the ones added. */
+    append(rows: NewApplicationEvent[]): Promise<ApplicationEvent[]>;
+    /** One application's timeline, oldest first. A model's reading is not on it (see `readings`). */
+    forApplication(applicationId: string): Promise<ApplicationEvent[]>;
+    /** Every event's source and thread (no summaries), newest first: what the tracker needs to place an email. No model readings. */
+    index(): Promise<Pick<ApplicationEvent, "applicationId" | "sourceRef" | "threadId">[]>;
+    /** Every event as the Pipeline lists it (what happened and when, no email ids or threads), newest first. No model readings. */
+    listed(): Promise<ListedEvent[]>;
+    /**
+     * The model's readings (decided by "model"), newest first. They are kept apart from the
+     * three reads above on purpose: a reading is a suggestion, so no timeline, list or
+     * tracker sees one until you confirm it (docs/design-pipeline.md, 5.6).
+     */
+    readings(): Promise<ApplicationEvent[]>;
+  };
+  /**
+   * Heard back (docs/design-pipeline.md, 5.7): one row per answer from a company. The same
+   * rows are the outbox the phone pings are sent from and the feed on the Pipeline. The
+   * server writes (the owner-scoped service store in live mode); you may only mark a row seen.
+   */
+  notifications: {
+    /** Adds rows. An event that already has one is skipped; returns only the ones added. */
+    add(rows: NewNotice[]): Promise<Notice[]>;
+    /** The feed: the newest answers first. */
+    recent(limit: number): Promise<Notice[]>;
+    /** Rows of one tier not sent yet, for emails that arrived at or after `since`, oldest first. */
+    unsent(tier: NoticeTier, since: string): Promise<Notice[]>;
+    /**
+     * Marks rows sent, and only the ones still unsent: the database checks and writes in one
+     * step, so two runs cannot both send one. Returns the rows this call marked.
+     */
+    claim(ids: string[], sentAt: string): Promise<Notice[]>;
+    /** Marks unread rows seen: all of them, or one application's. Returns how many. */
+    markSeen(seenAt: string, applicationId?: string): Promise<number>;
+  };
   approvals: Collection<Approval>;
   aiUsage: {
-    /** AI calls recorded on this UTC day. */
-    countToday(): Promise<number>;
+    /** AI calls recorded on this UTC day: all of them, or only those made for one purpose. */
+    countToday(purpose?: string): Promise<number>;
     record(purpose: string): Promise<void>;
     /** When each AI call since an instant was made (ISO), for the QA review. */
     since(isoInstant: string): Promise<string[]>;
@@ -152,6 +218,68 @@ export interface Store {
     /** Every stored passage of one kind, with its text (small kinds only: resumes). */
     bySource(source: KnowledgeSource, limit: number): Promise<{ sourceId: string; title: string; content: string }[]>;
   };
+  /**
+   * The tech market read broadly (lib/domain/techMarket.ts). Only the Scout writes: the cleaned
+   * postings, the daily summary and each day's data-quality record.
+   */
+  techMarket: {
+    /** Merges postings by fingerprint (earliest first-seen, every source). Returns how many were new. */
+    record(rows: TechPosting[]): Promise<number>;
+    /** Postings last seen on or after a day. */
+    since(day: string): Promise<TechPosting[]>;
+    /** Deletes postings last seen before a day. Returns how many. */
+    prune(before: string): Promise<number>;
+    /** How many postings are stored, and how many summary days. Counts only. */
+    size(): Promise<{ postings: number; days: number }>;
+    /** Replaces one day's summary rows. */
+    saveDaily(day: string, rows: DailyRow[]): Promise<void>;
+    /** Summary rows on or after a day. */
+    daily(since: string): Promise<DailyRow[]>;
+    /** Keeps the day's latest run quality. */
+    saveQuality(q: RunQuality): Promise<void>;
+    quality(since: string): Promise<RunQuality[]>;
+  };
+  /** National benchmarks (BLS, FRED). Only the Scout writes, once a week. */
+  /**
+   * The apply brief's research, one row per apply kit (lib/agents/briefResearch.ts): news,
+   * the company's own pages and the Gemini angle. Only the server writes; you read.
+   */
+  applyBriefs: {
+    /** Saves a kit's research, replacing what was there. */
+    save(approvalId: string, data: unknown, researchedAt: string): Promise<void>;
+    /** The research for these kits, by kit id. */
+    forKits(approvalIds: readonly string[]): Promise<Map<string, { data: unknown; researchedAt: string }>>;
+  };
+  /**
+   * The Career Map, one snapshot per week (lib/domain/careerMap.ts). Only the Career Mentor writes, with
+   * the service role; you read. Stored as JSON and parsed on the way out.
+   */
+  /** Each agent run's typed state, saved after every step (docs/AGENT-ARCHITECTURE.md). Only the server writes. */
+  agentRunState: {
+    save(runId: string, agent: string, status: "running" | "done" | "stopped" | "failed", state: AgentState): Promise<void>;
+    get(runId: string): Promise<{ runId: string; agent: string; status: string; state: AgentState } | null>;
+    /** The newest runs of an agent, newest first. */
+    recent(agent: string, limit: number): Promise<{ runId: string; status: string; state: AgentState; updatedAt: string }[]>;
+  };
+  /** Short dated lessons an agent keeps between runs; they expire unless outcomes confirm them. */
+  agentMemory: {
+    add(row: Omit<Lesson, "id" | "confirmed">): Promise<Lesson>;
+    list(agent: string): Promise<Lesson[]>;
+    /** Outcomes confirmed it: counted, and kept until `expiresOn`. */
+    confirm(id: string, expiresOn: string): Promise<void>;
+  };
+  careerMaps: {
+    /** Saves the week's snapshot, replacing one already saved that week. */
+    save(week: string, data: unknown): Promise<void>;
+    /** The newest snapshots, newest first. */
+    latest(limit: number): Promise<{ week: string; data: unknown }[]>;
+  };
+  benchmarks: {
+    /** Adds new points and replaces revised ones (same series and period). Returns how many were new. */
+    upsert(points: BenchmarkPoint[]): Promise<number>;
+    /** Points for periods on or after a day. */
+    since(day: string): Promise<BenchmarkPoint[]>;
+  };
   /** The Career desk's market data. The Scout writes postings; the Analyst writes reports. */
   market: {
     /** Records postings: new ones are added, ones seen before get today as their last-seen day. Returns how many were new. */
@@ -161,12 +289,13 @@ export interface Store {
     saveReport(r: Omit<StoredMarketReport, "id" | "createdAt">): Promise<StoredMarketReport>;
     latestReport(): Promise<StoredMarketReport | null>;
   };
-  /** The Mentor's insights. Only the Mentor adds; you may mark one done or dismissed. */
+  /** The Career Mentor's insights. Only the Career Mentor adds; you may mark one done or dismissed. */
   mentor: {
     add(rows: NewInsight[]): Promise<MentorInsight[]>;
     /** Insights for a day or later, newest first. */
     since(day: string): Promise<MentorInsight[]>;
-    setStatus(id: string, status: MentorInsight["status"]): Promise<void>;
+    /** Your answer: Action Taken (done, with an optional note of what you did), Not useful, or open again. */
+    setStatus(id: string, status: MentorInsight["status"], note?: string): Promise<void>;
   };
   /** Your GitHub projects as the Scout last described them. Only the Scout writes. */
   portfolio: {
@@ -175,13 +304,34 @@ export interface Store {
     /** Most recently pushed first. */
     list(): Promise<PortfolioRepo[]>;
   };
-  /** The Mentor's proposals for your target roles. Only the Mentor adds; you decide each one. */
+  /** The Career Mentor's proposals for your target roles. Only the Career Mentor adds; you decide each one. */
   roleProposals: {
     add(row: NewRoleProposal): Promise<RoleProposal>;
     /** Newest first. */
     recent(limit: number): Promise<RoleProposal[]>;
     get(id: string): Promise<RoleProposal | null>;
     setStatus(id: string, status: RoleProposal["status"]): Promise<void>;
+  };
+  /** What each of your top roles is, written weekly by the Career Mentor. Only the Career Mentor writes. */
+  roleProfiles: {
+    /** Saves a role's profile for its week, replacing that week's earlier one. */
+    save(row: NewRoleProfile): Promise<RoleProfile>;
+    /** Newest week first. */
+    recent(limit: number): Promise<RoleProfile[]>;
+  };
+  /** The skills each role asked for, one row per role per day. Only the Analyst writes. */
+  roleSkills: {
+    /** Saves a day's rows, replacing that day's earlier rows for the same roles. */
+    save(rows: NewRoleSkillStat[]): Promise<void>;
+    /** Rows from `day` on, oldest first. */
+    since(day: string): Promise<RoleSkillStat[]>;
+  };
+  /** What each role is about, one per role per month. Only the Career Mentor writes. */
+  roleDescriptions: {
+    /** Saves a role's description for its month, replacing that month's earlier one. */
+    save(row: NewRoleDescription): Promise<RoleDescription>;
+    /** Newest month first. */
+    recent(limit: number): Promise<RoleDescription[]>;
   };
 }
 

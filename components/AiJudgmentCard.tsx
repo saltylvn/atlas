@@ -56,8 +56,8 @@ export function AiJudgmentCard({
       <CardHeader
         title={`AI judgment: ${name}`}
         icon="sparkle"
-        hint="Facts come from rules; the model judges and words them, inside checks. When it is off, slow or over its limit, each agent falls back to its rules."
-        action={<Pill color={on ? "var(--c-purple)" : "var(--c-grey)"}>{on ? "Connected" : "Off"}</Pill>}
+        hint="Facts come from rules; the model judges and words them, inside checks. When it is off, slow or over its limit, each bot falls back to its rules."
+        action={<Pill color={on ? "var(--c-ai)" : "var(--c-grey)"}>{on ? "Connected" : "Off"}</Pill>}
       />
       <div className="mb-4 flex flex-wrap gap-x-6 gap-y-1 text-sm text-ink-2">
         {models && (
@@ -85,7 +85,7 @@ export function AiJudgmentCard({
             <ul className="mb-2 space-y-1 text-sm">
               {(lastCheck.trace ?? []).map((s) => (
                 <li key={s.name} className="flex flex-wrap items-baseline gap-x-2">
-                  <span style={{ color: s.ok ? "var(--c-green)" : "var(--c-orange)" }}>{s.ok ? "✓" : "✗"}</span>
+                  <span style={{ color: s.ok ? "var(--c-green)" : "var(--c-warn-ink)" }}>{s.ok ? "✓" : "✗"}</span>
                   <span className="font-medium">{s.name.replace(/^(Writer|Fast|Not in use): /, "")}</span>
                   <span className="text-xs text-ink-3">{s.name.startsWith("Writer") ? "asked first" : s.name.startsWith("Fast") ? "fallback" : "not in use"}</span>
                   <span className="text-ink-2 break-words">{s.note}</span>
@@ -113,11 +113,11 @@ export function AiJudgmentCard({
                 {!last ? (
                   "No run yet"
                 ) : fell ? (
-                  <span style={{ color: "var(--c-orange)" }}>
+                  <span style={{ color: "var(--c-warn-ink)" }}>
                     Last run {timeAgo(last.at, now)} used rules: {whyRules(last)}
                   </span>
                 ) : last.model ? (
-                  <span style={{ color: "var(--c-purple)" }}>
+                  <span style={{ color: "var(--c-ai-ink)" }}>
                     Judged by {name} {timeAgo(last.at, now)} ({last.model})
                   </span>
                 ) : (

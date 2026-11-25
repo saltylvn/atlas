@@ -106,7 +106,7 @@ describe("Scheduled runs: five minutes, and a minute per model call", () => {
   });
 
   it("still ends a scheduled brief inside five minutes in the worst case", () => {
-    // Analyst, Mentor, role review and wording each take their whole minute, one after another.
+    // Analyst, Career Mentor, role review and wording each take their whole minute, one after another.
     let now = 0;
     for (const reserve of [AFTER_SPECIALIST_MS, AFTER_SPECIALIST_MS, AFTER_SPECIALIST_MS, AFTER_WORDING_MS]) {
       now += 6_000 + modelWait(SCHEDULED_AI_CAP_MS, SCHEDULED_LIMIT_MS, now, reserve);
@@ -160,7 +160,7 @@ describe("The Chief of Staff's run inside its time limit", () => {
     expect(model.mock.calls[0]![0]).toBe(SCHEDULED_AI_CAP_MS);
   });
 
-  it("Run Now gets a deadline too, and passes it to the Mentor", async () => {
+  it("Run Now gets a deadline too, and passes it to the Career Mentor", async () => {
     model.mockResolvedValue({ ok: false, reason: "error" } as never);
     const before = Date.now();
     await runChiefOfStaff(demo(), "morning", "run-now");

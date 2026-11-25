@@ -1,15 +1,13 @@
-// The Applications Agent: today's picks, in two tracks.
+// The Applications Agent: today's picks.
 //
-// Full-time is the goal; gigs build the portfolio. Each track has a small daily plan, so
-// the day's list is short enough to finish, and gigs cannot crowd out the job hunt.
+// A small daily plan keeps the day's list short enough to finish.
 // Pure: matches in, picks out.
 
-import type { Application, JobMatch, JobType, LocalDate } from "./types";
+import type { Application, JobMatch, LocalDate } from "./types";
 import { daysBetween } from "./dates";
+import { ON_DEMAND_SLOT } from "./moreMatches";
 
-export interface TrackPicks {
-  type: JobType;
-  label: "Full-time" | "Gigs";
+export interface DayPicks {
   /** Planned applications today, and how many you have sent. */
   plan: number;
   sent: number;
@@ -20,24 +18,22 @@ export interface TrackPicks {
 /** How many days a match stays a candidate for the day's list. */
 const FRESH_DAYS = 3;
 
-export function todaysPicks(matches: readonly JobMatch[], applications: readonly Application[], today: LocalDate, plan: { fullTime: number; gigs: number }): TrackPicks[] {
-  const track = (type: JobType, label: TrackPicks["label"], planned: number): TrackPicks => {
-    const sent = applications.filter((a) => a.type === type && a.appliedOn === today && a.status !== "saved").length;
-    const seen = new Set<string>();
-    const picks = matches
-      .filter((m) => m.type === type && m.status === "new" && m.rating >= 0 && daysBetween(m.shownOn, today) <= FRESH_DAYS)
-      // What you liked first, then the agent's score, then the newest.
-      .sort((a, b) => b.rating - a.rating || b.score - a.score || (b.postedAt ?? "").localeCompare(a.postedAt ?? ""))
-      .filter((m) => {
-        const company = m.company.toLowerCase();
-        if (seen.has(company)) return false;
-        seen.add(company);
-        return true;
-      })
-      .slice(0, Math.max(0, planned - sent));
-    return { type, label, plan: planned, sent, picks };
-  };
-  return [track("full-time", "Full-time", plan.fullTime), track("gig", "Gigs", plan.gigs)];
+export function todaysPicks(matches: readonly JobMatch[], applications: readonly Application[], today: LocalDate, plan: number): DayPicks {
+  const sent = applications.filter((a) => a.appliedOn === today && a.status !== "saved").length;
+  const seen = new Set<string>();
+  const picks = matches
+    // The plan is drawn from your briefs. What a search you started found has its own list to review.
+    .filter((m) => m.shownSlot !== ON_DEMAND_SLOT && m.status === "new" && m.rating >= 0 && daysBetween(m.shownOn, today) <= FRESH_DAYS)
+    // What you liked first, then the agent's score, then the newest.
+    .sort((a, b) => b.rating - a.rating || b.score - a.score || (b.postedAt ?? "").localeCompare(a.postedAt ?? ""))
+    .filter((m) => {
+      const company = m.company.toLowerCase();
+      if (seen.has(company)) return false;
+      seen.add(company);
+      return true;
+    })
+    .slice(0, Math.max(0, plan - sent));
+  return { plan, sent, picks };
 }
 
 /** A job you saved yourself is keyed by its link, so saving it twice does nothing. */

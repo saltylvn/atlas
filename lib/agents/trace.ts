@@ -12,6 +12,8 @@ export interface Tracer {
   note(name: string, note: string, ok?: boolean): void;
   /** The run so far: total time and every step. */
   finish(): { durationMs: number; trace: TraceStep[] };
+  /** The step running now (the latest started, when several run at once), or null. */
+  current(): string | null;
 }
 
 const MAX_STEPS = 24;
@@ -20,12 +22,15 @@ const clip = (s: string, n: number) => (s.length > n ? `${s.slice(0, n - 1)}…`
 export function tracer(now: () => number = Date.now): Tracer {
   const started = now();
   const steps: TraceStep[] = [];
+  const running: string[] = [];
   const push = (s: TraceStep) => {
     if (steps.length < MAX_STEPS) steps.push({ name: clip(s.name, 80), ms: Math.max(0, Math.round(s.ms)), ok: s.ok, note: clip(s.note, 240) });
   };
   return {
     async step(name, fn, note) {
       const t0 = now();
+      running.push(name);
+      const done = () => running.splice(running.lastIndexOf(name), 1);
       try {
         const value = await fn();
         let line = "";
@@ -34,10 +39,12 @@ export function tracer(now: () => number = Date.now): Tracer {
         } catch {
           line = "";
         }
+        done();
         push({ name, ms: now() - t0, ok: true, note: line });
         return value;
       } catch (err) {
         // The error's message can carry anything; keep only its first line, clipped.
+        done();
         push({ name, ms: now() - t0, ok: false, note: ((err as Error).message ?? "failed").split("\n")[0]!.slice(0, 160) });
         throw err;
       }
@@ -48,6 +55,9 @@ export function tracer(now: () => number = Date.now): Tracer {
     finish() {
       return { durationMs: Math.max(0, Math.round(now() - started)), trace: [...steps] };
     },
+    current() {
+      return running.at(-1) ?? null;
+    },
   };
 }
 
@@ -57,6 +67,9 @@ export const NO_TRACE: Tracer = {
     return fn();
   },
   note() {},
+  current() {
+    return null;
+  },
   finish() {
     return { durationMs: 0, trace: [] };
   },

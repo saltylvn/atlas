@@ -65,12 +65,12 @@ export function BriefPanel({
                   <Icon name="check" size={11} /> Briefed
                 </Pill>
               ) : missed ? (
-                <Pill color="var(--c-orange)">Not saved</Pill>
+                <Pill color="var(--c-warn)">Not saved</Pill>
               ) : (
-                !preview && <Pill color="var(--c-blue)">New</Pill>
+                !preview && <Pill color="var(--c-indigo)">New</Pill>
               )}
               {hot > 0 && (
-                <Pill color="var(--c-orange)">{hot} on the Hot List</Pill>
+                <Pill color="var(--c-warn)">{hot} on the Hot List</Pill>
               )}
             </p>
             {!open && <p className="h-display mt-1.5 text-[1.05rem] font-semibold leading-snug md:text-[1.2rem]">{headline}</p>}

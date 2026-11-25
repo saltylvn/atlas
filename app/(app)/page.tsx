@@ -2,19 +2,25 @@ import Link from "next/link";
 import { getContext } from "@/lib/context";
 import { loadBrief } from "@/lib/briefing";
 import { aiConfigured } from "@/lib/ai/model";
-import { addDays, greeting, localTime, longDate } from "@/lib/domain/dates";
+import { addDays, greeting, localTime, longDate, mondayOf } from "@/lib/domain/dates";
 import { minutesLabel } from "@/lib/domain/planner";
 import { dueLabel } from "@/lib/domain/relationships";
 import { TaskCheck } from "@/components/client/TaskCheck";
 import { Icon } from "@/components/Icon";
 import { DayTimeline, NowNextCard } from "@/components/schedule";
-import { loadTodaySchedule } from "@/lib/scheduling";
-import { AreaDot, CardHeader, Empty, Meter, PriorityPill } from "@/components/ui";
+import { calendarFor, loadTodaySchedule, nowMinutes } from "@/lib/scheduling";
+import { DayCalendar, TodayViewToggle } from "@/components/DayCalendar";
+import { HOURS_COOKIE, todayView, windowHours } from "@/lib/domain/dayCalendar";
+import { cookies } from "next/headers";
+import { AreaDot, CardHeader, Empty, Meter, PriorityPill, ViewSwitchSlot } from "@/components/ui";
 import { BriefView } from "@/components/BriefView";
 import { BriefPanel } from "@/components/client/BriefPanel";
 import { MentorCard } from "@/components/MentorCard";
+import { ReadyCard } from "@/components/ReadyCard";
+import { WeeklyPlanCard } from "@/components/WeeklyPlanCard";
+import { weeklyPlanOf } from "@/lib/domain/weeklyPlan";
+import { loadReady } from "@/lib/agents/nightShift";
 import { insightsForToday, mentorRetryReason, TODAY_INSIGHT_DAYS } from "@/lib/domain/mentor";
-import { qaAlerts } from "@/lib/domain/qa";
 import { buildBriefReport } from "@/lib/agents/chiefOfStaff";
 import { BRIEF_NAME, BRIEF_TIMES, catchUpDays, catchUpSummary, currentSlot, hourLabel, nextSync, pickBriefDay, slotsFor, SYNC_TASK, todaysBriefs } from "@/lib/domain/briefSchedule";
 import { BriefDays } from "@/components/BriefDays";
@@ -25,8 +31,15 @@ export const metadata = { title: "Today" };
 // The live preview can run the Chief of Staff's builders.
 export const maxDuration = 60;
 
-export default async function TodayPage({ searchParams }: { searchParams: Promise<{ day?: string | string[] }> }) {
+export default async function TodayPage({ searchParams }: { searchParams: Promise<{ day?: string | string[]; view?: string | string[]; hours?: string | string[] }> }) {
   const ctx = await getContext();
+  // ?view=calendar: today's Google Calendar on an hour grid, for an iPad left standing. It loads
+  // only the calendar, so it is quick to refresh. The toggle on each view switches back.
+  const sp = await searchParams;
+  if (todayView(sp.view) === "calendar") {
+    const calendar = await calendarFor(ctx, ctx.today, ctx.today);
+    return <DayCalendar calendar={calendar} day={ctx.today} dateLabel={longDate(ctx.today)} timeZone={ctx.settings.timezone} nowMin={nowMinutes(ctx)} hours={windowHours(sp.hours ?? (await cookies()).get(HOURS_COOKIE)?.value)} />;
+  }
   // ?day= opens a past day's briefs to catch up on: up to two days back, this week only. Anything else is today.
   const briefDay = pickBriefDay((await searchParams).day, ctx.today);
   const back = catchUpDays(ctx.today);
@@ -39,19 +52,16 @@ export default async function TodayPage({ searchParams }: { searchParams: Promis
   const dayOff = slotsFor(ctx.today).length === 0;
   // Everything that does not depend on something else loads together, in one round of
   // database calls, so the page waits for the slowest one rather than their sum.
-  const [b, savedToday, recentMatches, recentRuns, mentorRows, pastSaved, qaReports] = await Promise.all([
+  const [b, savedToday, recentMatches, recentRuns, mentorRows, pastSaved] = await Promise.all([
     loadBrief(ctx),
     dayOff ? Promise.resolve([]) : ctx.store.briefs.forDate(ctx.today),
     // Your thumbs and queue state for the briefs' matches (a stored brief keeps only the matches).
     dayOff ? Promise.resolve([]) : ctx.store.jobMatches.since(addDays(ctx.today, -1)).catch(() => []),
     ctx.store.agentRuns.recent(60).catch(() => []),
-    // The Mentor runs on its own clock (the evening review is in no brief), so Today asks for its open insights directly.
+    // The Career Mentor runs on its own clock (the evening review is in no brief), so Today asks for its open insights directly.
     ctx.store.mentor.since(addDays(ctx.today, -(TODAY_INSIGHT_DAYS - 1))).catch(() => []),
     pastBriefs,
-    // The QA Agent's weekly review: Today points at it only when something serious was found.
-    ctx.store.qa.recent(1).catch(() => []),
   ]);
-  const qa = qaAlerts(qaReports[0]?.report ?? null, ctx.today);
   const mentor = insightsForToday(mentorRows, ctx.today);
   // When the agents last reported to the Chief of Staff, and when they will next.
   const lastSync = recentRuns.find((r) => r.task === SYNC_TASK && r.status === "succeeded");
@@ -59,6 +69,9 @@ export default async function TodayPage({ searchParams }: { searchParams: Promis
   const { brief } = b;
   const tz = ctx.settings.timezone;
   const day = await loadTodaySchedule(ctx, b.tasks);
+  const weekPlan = weeklyPlanOf(ctx.settings.weeklyPlan);
+  // What the night shift prepared: today's picks with their research and tailoring (lib/agents/nightShift.ts).
+  const ready = await loadReady(ctx).catch(() => []);
 
   // Every brief saved today stays on the page, newest on top: the 2:00 PM brief sits above
   // the morning one once it comes in. Before the first run, a live preview stands in.
@@ -73,14 +86,17 @@ export default async function TodayPage({ searchParams }: { searchParams: Promis
 
   return (
     <div className="space-y-5">
-      <section className="flex flex-wrap items-end justify-between gap-3">
+      <ViewSwitchSlot>
+        <TodayViewToggle view="today" />
+      </ViewSwitchSlot>
+      <section className="!mt-0 flex flex-wrap items-end justify-between gap-3">
         <div>
           <p className="eyebrow">{longDate(ctx.today)}</p>
           <h1 className="h-display mt-1 text-[1.9rem] font-medium leading-tight md:text-[2.4rem]">
             {greeting(ctx.time)}, <span className="text-brand">{ctx.settings.displayName}</span>
           </h1>
           <p className="mt-1 text-xs text-ink-3">
-            {lastSync ? `Agents synced at ${localTime(new Date(lastSync.at), tz)}.` : "Agents sync every two hours, 6 AM to 4 PM, Monday to Saturday."} Next sync around {hourLabel(upcoming.hour)}
+            {lastSync ? `Bots synced at ${localTime(new Date(lastSync.at), tz)}.` : "Bots sync every two hours, 6 AM to 4 PM, Monday to Saturday."} Next sync around {hourLabel(upcoming.hour)}
             {upcoming.day === ctx.today ? "" : ` on ${longDate(upcoming.day).split(",")[0]}`}.
           </p>
         </div>
@@ -98,30 +114,7 @@ export default async function TodayPage({ searchParams }: { searchParams: Promis
         )}
       </section>
 
-      <NowNextCard nn={day.nowNext} schedule={day.schedule} tasks={day.tasks} day={ctx.today} timeZone={tz} now={ctx.now} />
-
-      {qa.length > 0 && (
-        <section className="card card-pad border-l-4" style={{ borderLeftColor: "var(--c-red)" }} aria-label="From the QA review">
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <p className="eyebrow flex items-center gap-1.5" style={{ color: "var(--c-red)" }}>
-              <Icon name="shield" size={13} /> QA review · {qa.length === 1 ? "1 thing needs" : `${qa.length} things need`} attention
-            </p>
-            <Link href="/mission#qa" className="btn btn-ghost btn-sm">
-              See the review <Icon name="arrow" size={14} />
-            </Link>
-          </div>
-          <ul className="mt-2 space-y-1 text-sm">
-            {qa.slice(0, 3).map((f) => (
-              <li key={f.key} className="break-words">
-                {f.title}
-              </li>
-            ))}
-          </ul>
-        </section>
-      )}
-
-      <MentorCard insights={mentor} retry={mentorRetryReason(recentRuns, aiConfigured() && ctx.settings.aiEnabled)} />
-
+      {/* The briefs always come first, right under the greeting (owner's layout, 24 Nov 2026). */}
       <BriefDays today={ctx.today} days={pastDays} current={ctx.today} />
 
       {briefs.length > 0 ? (
@@ -148,8 +141,17 @@ export default async function TodayPage({ searchParams }: { searchParams: Promis
         </section>
       )}
 
+      {weekPlan && weekPlan.status !== "dismissed" && weekPlan.weekOf >= mondayOf(ctx.today) && <WeeklyPlanCard plan={weekPlan} tasks={day.tasks} compact />}
+
+      <ReadyCard jobs={ready} />
+
+      <NowNextCard nn={day.nowNext} schedule={day.schedule} tasks={day.tasks} day={ctx.today} timeZone={tz} now={ctx.now} />
+
+      <MentorCard insights={mentor} retry={mentorRetryReason(recentRuns, aiConfigured() && ctx.settings.aiEnabled)} />
+
+
       {brief.risks.length > 0 && (
-        <section className="card card-pad border-l-4" style={{ borderLeftColor: "var(--c-orange)" }}>
+        <section className="card card-pad border-l-4" style={{ borderLeftColor: "var(--c-warn)" }}>
           <CardHeader title="Watch-outs" icon="alert" />
           <ul className="space-y-1.5">
             {brief.risks.map((r) => (
@@ -221,7 +223,7 @@ export default async function TodayPage({ searchParams }: { searchParams: Promis
                 <li key={p.contact.id}>
                   <Link href={`/people?to=${p.contact.id}`} className="flex items-center justify-between gap-2 rounded-lg px-2 py-2 hover:bg-surface-2">
                     <span className="flex items-center gap-2 text-sm font-medium">
-                      {p.reason === "birthday" && <Icon name="cake" size={15} className="text-[var(--c-pink)]" />}
+                      {p.reason === "birthday" && <Icon name="cake" size={15} className="text-[var(--c-brown)]" />}
                       {p.contact.name}
                     </span>
                     <span className={`text-xs font-semibold ${p.reason === "cadence" && p.days > 3 ? "text-bad" : "text-ink-3"}`}>{dueLabel(p)}</span>

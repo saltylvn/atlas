@@ -56,7 +56,7 @@ function syncRows(): AgentRunEvent[] {
     row({ runId: "c1", agent: "calendar", status: "started", at: at(3) }),
     row({ runId: "f1", agent: "finance", status: "started", at: at(3) }),
     row({ runId: "c1", agent: "calendar", status: "succeeded", at: at(4), durationMs: 900, trace: [step("Read Google Calendar (secret iCal address, read-only)", 800)] }),
-    row({ runId: "f1", agent: "finance", status: "failed", at: at(5), durationMs: 1800, detail: "boom", trace: [step("Load the inbox the Email Agent synced, and your Renewals list", 300), step("Read bills, payment alerts and deals", 1500, false, "boom")] }),
+    row({ runId: "f1", agent: "finance", status: "failed", at: at(5), durationMs: 1800, detail: "boom", trace: [step("Load the inbox the Email bot synced, and your Renewals list", 300), step("Read bills, payment alerts and deals", 1500, false, "boom")] }),
     row({
       runId: "s1",
       agent: "chief-of-staff",
@@ -66,9 +66,9 @@ function syncRows(): AgentRunEvent[] {
       detail: "3 need a reply, Interview from Northwind Labs",
       trace: [
         step("Sync role order and resumes from Notion", 300, true, "7 roles, 8 resumes"),
-        step("Ask the Email Agent", 2100, true, "3 need a reply"),
-        step("Ask the Calendar Agent", 1000),
-        step("Ask the Finance Agent", 1900, true, "failed: boom"),
+        step("Ask the Email bot", 2100, true, "3 need a reply"),
+        step("Ask the Calendar bot", 1000),
+        step("Ask the Finance bot", 1900, true, "failed: boom"),
         step("Ping your phone about something urgent", 200, true, "1 urgent, sent to 1 device"),
       ],
     }),
@@ -161,11 +161,11 @@ describe("The two-desk layout", () => {
 
   it("has facts for every box, and focusing a box keeps what it is joined to", () => {
     for (const n of MAP_NODES) expect(NODE_FACTS[n.id]?.length, n.id).toBeGreaterThan(0);
-    expect(related(MODEL_NODE).sort()).toEqual([MODEL_NODE, "analyst", "career", "chief-of-staff", "mentor"].sort());
+    expect(related(MODEL_NODE).sort()).toEqual([MODEL_NODE, "analyst", "apply", "career", "chief-of-staff", "mentor"].sort());
     expect(related("src-github").sort()).toEqual(["scout", "src-github"]);
   });
 
-  it("lights the evening trigger when the evening run starts Applications or the Mentor", () => {
+  it("lights the evening trigger when the evening run starts Applications or the Career Mentor", () => {
     const s = snap([row({ runId: "rs1", agent: "career", status: "started", task: "Resume sync (Figma to Notion)", at: at(0) })], 5);
     const lit = liveHighlights(s, T0 + 5000);
     expect(lit.nodes).toContain("trigger-evening");
@@ -213,7 +213,7 @@ describe("Reading the activity log", () => {
     const m = snap([...syncRows(), ...earlier], 10).mission!;
     expect(m.kind).toBe("sync");
     expect(m.members.map((r) => r.agent).sort()).toEqual(["calendar", "email", "finance"]);
-    // Pages always; the phone because the run pinged it; no brief (a sync writes none) and no Approval Queue (Career did not run).
+    // Pages always; the phone because the run pinged it; no brief (a sync writes none) and no apply queues (Career did not run).
     expect(m.delivered).toEqual(["out-pages", "out-phone"]);
     // The daily eval run is logged under the Chief of Staff but orchestrates nothing.
     const evalOnly = snap([row({ runId: "ev", agent: "chief-of-staff", status: "succeeded", task: "Agent evals" })], 10);
@@ -242,7 +242,7 @@ describe("What lights up", () => {
   });
 
   it("reads which boxes a step touches from its name", () => {
-    expect(askedAgent("Ask the Applications Agent to log applications and queue follow-ups")).toBe("career");
+    expect(askedAgent("Ask the Applications bot to log applications and queue follow-ups")).toBe("career");
     expect(askedAgent("Check for anything urgent")).toBeNull();
     expect(stepNodes("Read Gmail (headers only)")).toEqual(["src-gmail"]);
     expect(stepNodes("Track applications from job emails")).toEqual(["email"]);
@@ -258,17 +258,17 @@ describe("Replay", () => {
     expect(frames.map((f) => f.title)).toEqual([
       "The schedule starts the 2-hour sync",
       "Sync role order and resumes from Notion",
-      "Chief of Staff asks the Email Agent",
+      "Chief of Staff asks the Email bot",
       "Read Gmail (headers only)",
       "Sort, tag and look for senders to declutter",
-      "Email Agent reports back",
-      "Chief of Staff asks the Calendar Agent",
+      "Email bot reports back",
+      "Chief of Staff asks the Calendar bot",
       "Read Google Calendar (secret iCal address, read-only)",
-      "Calendar Agent reports back",
-      "Chief of Staff asks the Finance Agent",
-      "Load the inbox the Email Agent synced, and your Renewals list",
+      "Calendar bot reports back",
+      "Chief of Staff asks the Finance bot",
+      "Load the inbox the Email bot synced, and your Renewals list",
       "Read bills, payment alerts and deals",
-      "Finance Agent reports back",
+      "Finance bot reports back",
       "Ping your phone about something urgent",
       "Every page in Atlas is fresh",
     ]);
@@ -285,9 +285,9 @@ describe("Replay", () => {
     }
     const gmail = frames.find((f) => f.title.startsWith("Read Gmail"))!;
     expect(gmail).toMatchObject({ actor: "email", edges: ["src-gmail>email"], note: "42 new", ms: 1500 });
-    expect(frames.find((f) => f.title === "Email Agent reports back")).toMatchObject({ reverse: true, edges: ["chief-of-staff>email"], ok: true });
+    expect(frames.find((f) => f.title === "Email bot reports back")).toMatchObject({ reverse: true, edges: ["chief-of-staff>email"], ok: true });
     expect(frames.find((f) => f.title === "Read bills, payment alerts and deals")!.ok).toBe(false);
-    expect(frames.find((f) => f.title === "Finance Agent reports back")!.ok).toBe(false);
+    expect(frames.find((f) => f.title === "Finance bot reports back")!.ok).toBe(false);
     expect(frames.at(-1)!.edges).toEqual(["chief-of-staff>out-pages", "chief-of-staff>out-phone"]);
   });
 
@@ -328,7 +328,7 @@ describe("A real sync on the map", () => {
     const live = await loadLive({ ...ctx, now: new Date() }, false);
     expect(live.mission).toMatchObject({ kind: "sync", run: { status: "succeeded", trigger: "run-now" } });
     expect(new Set(live.mission!.members.map((m) => m.agent))).toEqual(new Set(["email", "calendar", "news", "career", "finance", "scout"]));
-    // Everyone in the sync has reported; the Analyst and the Mentor only run with the briefs.
+    // Everyone in the sync has reported; the Analyst and the Career Mentor only run with the briefs.
     expect(live.agents.filter((a) => a.agent !== "analyst" && a.agent !== "mentor").every((a) => a.state !== "idle" && a.state !== "running")).toBe(true);
     expect(live.agents.filter((a) => a.agent === "analyst" || a.agent === "mentor").map((a) => a.state)).toEqual(["idle", "idle"]);
     expect(live.mission!.delivered).toContain("out-pages");

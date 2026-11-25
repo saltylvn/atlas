@@ -3,11 +3,14 @@
 
 import { randomUUID } from "node:crypto";
 import { ROLE_NOT_LISTED } from "@/lib/domain/applications";
+import { noticeText } from "@/lib/domain/heardBack";
+import { EVENT_LABEL, stageOfStatus } from "@/lib/domain/pipeline";
 import { addDays, localDate, mondayOf } from "@/lib/domain/dates";
 import type {
   AgentRunEvent,
   AgentStateRecord,
   Application,
+  ApplicationEvent,
   Approval,
   JobMatch,
   AuditEvent,
@@ -17,6 +20,7 @@ import type {
   InboxItem,
   JobWatch,
   LedgerEntry,
+  Notice,
   OutboundMessage,
   Project,
   PushSubscriptionRecord,
@@ -29,13 +33,19 @@ import type {
 } from "@/lib/domain/types";
 import { chunkKey, type KnowledgeChunk } from "@/lib/domain/knowledge";
 import type { MarketPosting, StoredMarketReport } from "@/lib/domain/market";
+import { mergeTech, type DailyRow, type RunQuality, type TechPosting } from "@/lib/domain/techMarket";
+import type { BenchmarkPoint } from "@/lib/domain/benchmarks";
 import type { MentorInsight } from "@/lib/domain/mentor";
 import type { PortfolioRepo } from "@/lib/domain/portfolio";
 import type { RoleProposal } from "@/lib/domain/roleOutlook";
+import type { RoleProfile } from "@/lib/domain/roleProfile";
+import { skillSnapshot, type RoleSkillStat } from "@/lib/domain/skillStats";
+import type { RoleDescription } from "@/lib/domain/roleDescription";
 import { bm25, type Hit } from "@/lib/domain/retrieval";
 import { TARGET_ROLES } from "@/lib/domain/targetRoles";
 import type { StoredQaReport } from "@/lib/domain/qa";
 import { DEFAULT_SETTINGS, type Collection, type Store } from "./store";
+import type { AgentState, Lesson } from "@/lib/domain/agentState";
 
 function collection<T extends { id: string; createdAt: string }>(rows: T[]): Collection<T> {
   return {
@@ -75,6 +85,8 @@ export interface MemoryState {
   projects: Project[];
   jobMatches?: JobMatch[];
   applications?: Application[];
+  applicationEvents?: ApplicationEvent[];
+  notifications?: Notice[];
   approvals?: Approval[];
   inbox: InboxItem[];
   connections: ConnectionInfo[];
@@ -90,10 +102,21 @@ export interface MemoryState {
   knowledge?: (KnowledgeChunk & { id: string; embedding: number[] | null; updatedAt: string })[];
   marketPostings?: MarketPosting[];
   marketReports?: StoredMarketReport[];
+  techPostings?: TechPosting[];
+  benchmarks?: BenchmarkPoint[];
+  careerMaps?: { week: string; data: unknown }[];
+  applyBriefs?: { approvalId: string; data: unknown; researchedAt: string }[];
+  agentStates?: { runId: string; agent: string; status: string; state: AgentState; updatedAt: string }[];
+  agentLessons?: Lesson[];
+  marketDaily?: DailyRow[];
+  marketQuality?: RunQuality[];
   qaReports?: StoredQaReport[];
   mentorInsights?: MentorInsight[];
   portfolioRepos?: PortfolioRepo[];
   roleProposals?: RoleProposal[];
+  roleProfiles?: RoleProfile[];
+  roleSkills?: RoleSkillStat[];
+  roleDescriptions?: RoleDescription[];
 }
 
 export function createMemoryStore(state: MemoryState): Store {
@@ -101,12 +124,78 @@ export function createMemoryStore(state: MemoryState): Store {
     tasks: collection(state.tasks),
     goals: collection(state.goals),
     contacts: collection(state.contacts),
+    phonebook: {
+      async addMany(rows) {
+        for (const r of rows) state.contacts.push({ ...structuredClone(r), id: randomUUID(), createdAt: new Date().toISOString() });
+        return rows.length;
+      },
+    },
     messages: collection(state.messages),
     routines: collection(state.routines),
     renewals: collection(state.renewals),
     watches: collection(state.watches),
     projects: collection(state.projects),
     applications: collection((state.applications ??= [])),
+    applicationEvents: {
+      async append(rows) {
+        const all = (state.applicationEvents ??= []);
+        const added: ApplicationEvent[] = [];
+        for (const r of rows) {
+          // The database's unique key: one event per source and kind.
+          if (all.some((e) => e.sourceRef === r.sourceRef && e.kind === r.kind)) continue;
+          const row = { ...structuredClone(r), id: randomUUID(), createdAt: new Date().toISOString() };
+          all.push(row);
+          added.push(structuredClone(row));
+        }
+        return added;
+      },
+      async forApplication(applicationId) {
+        return (state.applicationEvents ?? []).filter((e) => e.applicationId === applicationId && e.decidedBy !== "model").sort((a, b) => a.occurredAt.localeCompare(b.occurredAt)).map((e) => structuredClone(e));
+      },
+      async index() {
+        return (state.applicationEvents ?? []).filter((e) => e.decidedBy !== "model").sort((a, b) => b.occurredAt.localeCompare(a.occurredAt)).map((e) => ({ applicationId: e.applicationId, sourceRef: e.sourceRef, threadId: e.threadId }));
+      },
+      async listed() {
+        return (state.applicationEvents ?? [])
+          .filter((e) => e.decidedBy !== "model")
+          .sort((a, b) => b.occurredAt.localeCompare(a.occurredAt))
+          .map((e) => ({ applicationId: e.applicationId, kind: e.kind, occurredAt: e.occurredAt, source: e.source, decidedBy: e.decidedBy, stage: e.stage, summary: e.summary }));
+      },
+      async readings() {
+        return (state.applicationEvents ?? []).filter((e) => e.decidedBy === "model").sort((a, b) => b.occurredAt.localeCompare(a.occurredAt)).map((e) => structuredClone(e));
+      },
+    },
+    notifications: {
+      async add(rows) {
+        const all = (state.notifications ??= []);
+        const added: Notice[] = [];
+        for (const r of rows) {
+          // The database's unique key: one notification per event.
+          if (all.some((n) => n.eventId === r.eventId)) continue;
+          const row = { ...structuredClone(r), id: randomUUID(), createdAt: new Date().toISOString() };
+          all.push(row);
+          added.push(structuredClone(row));
+        }
+        return added;
+      },
+      async recent(limit) {
+        return [...(state.notifications ?? [])].sort((a, b) => b.occurredAt.localeCompare(a.occurredAt)).slice(0, limit).map((n) => structuredClone(n));
+      },
+      async unsent(tier, since) {
+        return (state.notifications ?? []).filter((n) => n.tier === tier && !n.sentAt && n.occurredAt >= since).sort((a, b) => a.occurredAt.localeCompare(b.occurredAt)).map((n) => structuredClone(n));
+      },
+      async claim(ids, sentAt) {
+        // Only rows still unsent, as the database's conditional update does.
+        const mine = (state.notifications ?? []).filter((n) => ids.includes(n.id) && !n.sentAt);
+        for (const n of mine) n.sentAt = sentAt;
+        return mine.map((n) => structuredClone(n));
+      },
+      async markSeen(seenAt, applicationId) {
+        const unseen = (state.notifications ?? []).filter((n) => !n.seenAt && (!applicationId || n.applicationId === applicationId));
+        for (const n of unseen) n.seenAt = seenAt;
+        return unseen.length;
+      },
+    },
     approvals: collection((state.approvals ??= [])),
     jobMatches: {
       async since(day) {
@@ -116,7 +205,10 @@ export function createMemoryStore(state: MemoryState): Store {
         return new Set((state.jobMatches ??= []).map((m) => m.key));
       },
       async rated() {
-        return (state.jobMatches ??= []).filter((m) => m.rating !== 0).map(({ role, company, source, rating }) => ({ role, company, source, rating }));
+        return (state.jobMatches ??= []).filter((m) => m.rating !== 0).map(({ role, company, source, rating, skills }) => ({ role, company, source, rating, skills }));
+      },
+      async perfect() {
+        return (state.jobMatches ??= []).filter((m) => m.rating === 2).sort((a, b) => b.shownOn.localeCompare(a.shownOn)).slice(0, 50).map((m) => ({ ...m }));
       },
       async get(id) {
         const m = (state.jobMatches ??= []).find((x) => x.id === id);
@@ -161,6 +253,12 @@ export function createMemoryStore(state: MemoryState): Store {
           const item = state.inbox.find((i) => i.messageId === r.messageId);
           if (item) Object.assign(item, { textVerdict: r.verdict, textQuote: r.quote.slice(0, 240), textRole: (r.role ?? "").slice(0, 160) });
         }
+      },
+      async claimForModel(messageId, at) {
+        const item = state.inbox.find((i) => i.messageId === messageId);
+        if (!item || item.modelReadAt) return false;
+        item.modelReadAt = at;
+        return true;
       },
     },
     connections: {
@@ -256,9 +354,9 @@ export function createMemoryStore(state: MemoryState): Store {
       },
     },
     aiUsage: {
-      async countToday() {
+      async countToday(purpose) {
         const day = new Date().toISOString().slice(0, 10);
-        return state.aiCalls.filter((c) => c.at.startsWith(day)).length;
+        return state.aiCalls.filter((c) => c.at.startsWith(day) && (purpose === undefined || c.purpose === purpose)).length;
       },
       async record(purpose) {
         state.aiCalls.push({ at: new Date().toISOString(), purpose });
@@ -323,6 +421,108 @@ export function createMemoryStore(state: MemoryState): Store {
         return (state.knowledge ??= []).filter((r) => r.source === source).slice(0, limit).map(({ sourceId, title, content }) => ({ sourceId, title, content }));
       },
     },
+    agentRunState: {
+      async save(runId, agent, status, st) {
+        const rows = (state.agentStates ??= []).filter((r) => r.runId !== runId);
+        state.agentStates = [...rows, { runId, agent, status, state: structuredClone(st), updatedAt: new Date().toISOString() }];
+      },
+      async get(runId) {
+        const r = (state.agentStates ?? []).find((x) => x.runId === runId);
+        return r ? { runId: r.runId, agent: r.agent, status: r.status, state: structuredClone(r.state) } : null;
+      },
+      async recent(agent, limit) {
+        return (state.agentStates ?? [])
+          .filter((r) => r.agent === agent)
+          .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
+          .slice(0, limit)
+          .map((r) => ({ runId: r.runId, status: r.status, state: structuredClone(r.state), updatedAt: r.updatedAt }));
+      },
+    },
+    agentMemory: {
+      async add(row) {
+        const made: Lesson = { ...row, id: randomUUID(), confirmed: 0 };
+        (state.agentLessons ??= []).push(made);
+        return structuredClone(made);
+      },
+      async list(agent) {
+        return (state.agentLessons ?? []).filter((l) => l.agent === agent).map((l) => structuredClone(l));
+      },
+      async confirm(id, expiresOn) {
+        const l = (state.agentLessons ?? []).find((x) => x.id === id);
+        if (l) {
+          l.confirmed += 1;
+          l.expiresOn = expiresOn;
+        }
+      },
+    },
+    applyBriefs: {
+      async save(approvalId, data, researchedAt) {
+        state.applyBriefs = [...(state.applyBriefs ?? []).filter((b) => b.approvalId !== approvalId), { approvalId, data: structuredClone(data), researchedAt }];
+      },
+      async forKits(ids) {
+        const want = new Set(ids);
+        return new Map((state.applyBriefs ?? []).filter((b) => want.has(b.approvalId)).map((b) => [b.approvalId, { data: structuredClone(b.data), researchedAt: b.researchedAt }]));
+      },
+    },
+    careerMaps: {
+      async save(week, data) {
+        state.careerMaps = [...(state.careerMaps ?? []).filter((m) => m.week !== week), { week, data: structuredClone(data) }];
+      },
+      async latest(limit) {
+        return [...(state.careerMaps ?? [])].sort((a, b) => b.week.localeCompare(a.week)).slice(0, limit).map((m) => ({ week: m.week, data: structuredClone(m.data) }));
+      },
+    },
+    benchmarks: {
+      async upsert(points) {
+        const have = new Map((state.benchmarks ??= []).map((p) => [`${p.seriesId}|${p.period}`, p]));
+        let added = 0;
+        for (const p of points) {
+          if (!have.has(`${p.seriesId}|${p.period}`)) added++;
+          have.set(`${p.seriesId}|${p.period}`, { ...p });
+        }
+        state.benchmarks = [...have.values()];
+        return added;
+      },
+      async since(day) {
+        return (state.benchmarks ?? []).filter((p) => p.period >= day).map((p) => ({ ...p }));
+      },
+    },
+    techMarket: {
+      async record(rows) {
+        const have = new Map((state.techPostings ??= []).map((p) => [p.fingerprint, p]));
+        let added = 0;
+        for (const r of rows) {
+          const old = have.get(r.fingerprint);
+          if (!old) added++;
+          have.set(r.fingerprint, mergeTech(old, structuredClone(r)));
+        }
+        state.techPostings = [...have.values()];
+        return added;
+      },
+      async since(day) {
+        return (state.techPostings ??= []).filter((p) => p.lastSeen >= day).map((p) => structuredClone(p));
+      },
+      async prune(before) {
+        const all = (state.techPostings ??= []);
+        state.techPostings = all.filter((p) => p.lastSeen >= before);
+        return all.length - state.techPostings.length;
+      },
+      async size() {
+        return { postings: (state.techPostings ?? []).length, days: new Set((state.marketDaily ?? []).map((r) => r.day)).size };
+      },
+      async saveDaily(day, rows) {
+        state.marketDaily =[...(state.marketDaily ?? []).filter((r) => r.day !== day), ...structuredClone(rows)];
+      },
+      async daily(since) {
+        return (state.marketDaily ?? []).filter((r) => r.day >= since).map((r) => structuredClone(r));
+      },
+      async saveQuality(q) {
+        state.marketQuality = [...(state.marketQuality ?? []).filter((r) => r.day !== q.day), structuredClone(q)];
+      },
+      async quality(since) {
+        return (state.marketQuality ?? []).filter((r) => r.day >= since).map((r) => structuredClone(r));
+      },
+    },
     market: {
       async record(rows) {
         const have = (state.marketPostings ??= []);
@@ -359,9 +559,11 @@ export function createMemoryStore(state: MemoryState): Store {
       async since(day) {
         return (state.mentorInsights ??= []).filter((i) => i.forDate >= day).sort((a, b) => b.createdAt.localeCompare(a.createdAt)).map((i) => structuredClone(i));
       },
-      async setStatus(id, status) {
+      async setStatus(id, status, note) {
         const row = (state.mentorInsights ??= []).find((i) => i.id === id);
-        if (row) row.status = status;
+        if (!row) return;
+        row.status = status;
+        if (note !== undefined) row.ownerNote = note;
       },
     },
     portfolio: {
@@ -389,6 +591,46 @@ export function createMemoryStore(state: MemoryState): Store {
       async setStatus(id, status) {
         const row = (state.roleProposals ?? []).find((r) => r.id === id);
         if (row) Object.assign(row, { status, decidedAt: new Date().toISOString() });
+      },
+    },
+    roleProfiles: {
+      async save(row) {
+        const list = (state.roleProfiles ??= []);
+        const made: RoleProfile = { ...structuredClone(row), id: randomUUID(), createdAt: new Date().toISOString() };
+        const at = list.findIndex((r) => r.role === row.role && r.forWeek === row.forWeek);
+        if (at >= 0) list[at] = made;
+        else list.push(made);
+        return structuredClone(made);
+      },
+      async recent(limit) {
+        return [...(state.roleProfiles ?? [])].sort((a, b) => b.forWeek.localeCompare(a.forWeek) || b.createdAt.localeCompare(a.createdAt)).slice(0, limit).map((r) => structuredClone(r));
+      },
+    },
+    roleSkills: {
+      async save(rows) {
+        const list = (state.roleSkills ??= []);
+        for (const row of rows) {
+          const made: RoleSkillStat = { ...structuredClone(row), id: randomUUID(), createdAt: new Date().toISOString() };
+          const at = list.findIndex((r) => r.role === row.role && r.forDate === row.forDate);
+          if (at >= 0) list[at] = made;
+          else list.push(made);
+        }
+      },
+      async since(day) {
+        return (state.roleSkills ?? []).filter((r) => r.forDate >= day).sort((a, b) => a.forDate.localeCompare(b.forDate)).map((r) => structuredClone(r));
+      },
+    },
+    roleDescriptions: {
+      async save(row) {
+        const list = (state.roleDescriptions ??= []);
+        const made: RoleDescription = { ...structuredClone(row), id: randomUUID(), createdAt: new Date().toISOString() };
+        const at = list.findIndex((r) => r.role === row.role && r.forMonth === row.forMonth);
+        if (at >= 0) list[at] = made;
+        else list.push(made);
+        return structuredClone(made);
+      },
+      async recent(limit) {
+        return [...(state.roleDescriptions ?? [])].sort((a, b) => b.forMonth.localeCompare(a.forMonth) || b.createdAt.localeCompare(a.createdAt)).slice(0, limit).map((r) => structuredClone(r));
       },
     },
   };
@@ -506,12 +748,13 @@ export function seedState(now: Date = new Date(), timeZone = DEFAULT_SETTINGS.ti
   ];
 
   // Demo applications on the Applications board (the interview is on the demo calendar).
-  const app = (n: number, a: Omit<Application, "id" | "createdAt" | "tier" | "origin" | "externalId" | "source" | "type" | "payText">): Application => ({
+  const app = (n: number, a: Omit<Application, "id" | "createdAt" | "tier" | "origin" | "externalId" | "source" | "payText">): Application => ({
     ...a,
     id: `demo-app-${n}`,
-    type: "full-time",
     source: "Email",
     payText: "",
+    stage: stageOfStatus(a.status),
+    lastHeardAt: a.status === "applied" ? null : a.statusAt,
     tier: "semi",
     origin: "atlas",
     externalId: `demo:${n}`,
@@ -526,6 +769,37 @@ export function seedState(now: Date = new Date(), timeZone = DEFAULT_SETTINGS.ti
     // Logged from a confirmation email whose subject did not name the role.
     app(6, { company: "Lumen Works", role: ROLE_NOT_LISTED, targetRole: "", url: "", status: "applied", appliedOn: addDays(today, -1), statusAt: iso(addDays(today, -1)), notes: "From email: Thank you for applying to Lumen Works" }),
   ];
+
+  // Each demo application's timeline: the day you applied, then the email that moved it.
+  const HEARD_AS = { replied: "reply", interview: "interview", rejected: "rejection" } as const;
+  const applicationEvents: ApplicationEvent[] = applications.flatMap((a) => {
+    const event = (kind: ApplicationEvent["kind"], occurredAt: string, source: ApplicationEvent["source"], summary: string): ApplicationEvent => ({
+      id: `${a.id}-${kind}`,
+      applicationId: a.id,
+      kind,
+      occurredAt,
+      source,
+      sourceRef: `demo:${a.id}`,
+      threadId: "",
+      decidedBy: "rules",
+      stage: null,
+      summary,
+      createdAt: created,
+    });
+    const heard = a.status === "replied" || a.status === "interview" || a.status === "rejected" ? HEARD_AS[a.status] : null;
+    return [
+      ...(a.appliedOn ? [event("applied", iso(a.appliedOn), "you", "You applied")] : []),
+      ...(heard ? [event(heard, a.statusAt, "email", EVENT_LABEL[heard])] : []),
+    ];
+  });
+
+  // Heard back: the answers above, as the feed lists them. Two are unread; none waits to be sent.
+  const notifications: Notice[] = applicationEvents
+    .filter((e) => e.source === "email")
+    .map((e): Notice => {
+      const a = applications.find((x) => x.id === e.applicationId)!;
+      return { id: `${e.id}-notice`, eventId: e.id, applicationId: a.id, kind: e.kind, occurredAt: e.occurredAt, ...noticeText(e.kind, a), url: `/applications/${a.id}`, tier: "push", sentAt: e.occurredAt, seenAt: e.kind === "rejection" ? e.occurredAt : null, createdAt: e.occurredAt };
+    });
 
   const ledger: LedgerEntry[] = [
     { id: id("ledger"), at: iso(addDays(today, -1), "13:00"), agent: "chief-of-staff", activity: "Morning brief", minutesSaved: 20 },
@@ -557,7 +831,8 @@ export function seedState(now: Date = new Date(), timeZone = DEFAULT_SETTINGS.ti
     mail(900, { messageId: "demo5", threadId: "demo5", fromName: "The Batch", fromEmail: "newsletter@batch.example", subject: "This week in AI", snippet: "Agents, evals, and a new open model.", category: "noise", reason: "Mailing list or automated" }),
     mail(1300, { messageId: "demo6", threadId: "demo6", fromName: "GitHub", fromEmail: "notifications@github.example", subject: "[saltylvn/atlas-optim] CI passed", snippet: "All checks have passed.", category: "noise", reason: "Notification sender" }),
     // Email Agent samples: a job email, a bank, a tracked subscription, a kept store, and promotions to declutter.
-    mail(240, { messageId: "demo7", threadId: "demo7", fromName: "Northwind Labs Recruiting", fromEmail: "no-reply@northwind.greenhouse.io", subject: "Interview availability for Senior Solutions Engineer", snippet: "", category: "noise", reason: "Notification sender" }),
+    // The demo has no Gmail to read, so its job emails come already read: the tracker places only read mail.
+    mail(240, { messageId: "demo7", threadId: "demo7", fromName: "Northwind Labs Recruiting", fromEmail: "no-reply@northwind.greenhouse.io", subject: "Interview availability for Senior Solutions Engineer", snippet: "", category: "noise", reason: "Notification sender", textVerdict: "interview", textQuote: "We would like to schedule a 45-minute interview with the hiring manager next week." }),
     mail(700, { messageId: "demo8", threadId: "demo8", fromName: "Chase", fromEmail: "no.reply.alerts@chase.com", subject: "Your credit card statement is ready", snippet: "", category: "noise", reason: "Notification sender" }),
     mail(800, { messageId: "demo9", threadId: "demo9", fromName: "Apex Fitness", fromEmail: "membership@apexfitness.example", subject: "Your membership renews Dec 1", snippet: "", category: "fyi", reason: "Update or receipt" }),
     mail(1000, { messageId: "demo10", threadId: "demo10", fromName: "Costco", fromEmail: "deals@email.costco.example", subject: "Member-only savings this week", snippet: "", category: "noise", reason: "Mailing list or automated" }),
@@ -595,11 +870,52 @@ export function seedState(now: Date = new Date(), timeZone = DEFAULT_SETTINGS.ti
     ],
     ledger,
     applications,
+    applicationEvents,
+    notifications,
     aiCalls: [],
     snippets,
     marketPostings: seedMarket(today),
+    marketDaily: seedMarketDaily(today),
+    benchmarks: seedBenchmarks(today),
+    // No Career Map in the demo until the Career Mentor builds one (Update now on the Career Map page).
+    careerMaps: [],
+    // Filled as you 👍 jobs in the demo: the research runs then, with the news feed and the rules' angle.
+    applyBriefs: [],
+    roleSkills: seedRoleSkills(today),
+    roleDescriptions: seedRoleDescriptions(today),
     portfolioRepos: seedPortfolio(today),
+    roleProfiles: seedRoleProfiles(monday, created),
   };
+}
+
+/** Sample profiles for the demo's first two roles, as the Career Mentor would write them on a Monday. Fictional. */
+function seedRoleProfiles(monday: string, createdAt: string): RoleProfile[] {
+  const sample = (n: number, role: string, text: Pick<RoleProfile, "does" | "tempo" | "project" | "closeSkill" | "closeWhy">): RoleProfile => ({
+    id: `role-profile-${n}`,
+    role,
+    forWeek: monday,
+    ...text,
+    postings: 0,
+    facts: ["Sample text for the demo. In your own Atlas this is written from the Analyst's numbers for the role."],
+    writer: "model",
+    createdAt,
+  });
+  return [
+    sample(1, "Solutions Engineer", {
+      does: "You sit between the product and the customer: you learn what a customer is trying to do, show how the product does it, build the proof that it works in their setup, and stay with them until it is live.",
+      tempo: "Customer-paced and varied. Several accounts move at once, calls set the rhythm of the week, and you are judged on deals won and customers who go live without trouble.",
+      project: "Build a small integration between two tools a customer would use, with a short demo video that walks through the customer's problem first and the build second.",
+      closeSkill: "",
+      closeWhy: "",
+    }),
+    sample(2, "Software Engineer", {
+      does: "You design, build and maintain features in a shared codebase: reading a ticket or a design, writing and testing the change, reviewing other people's work and keeping what is live healthy.",
+      tempo: "Steady and team-paced. Work comes in planned cycles with reviews and releases, long stretches of focus, and you are judged on what ships and how well it holds up.",
+      project: "Take one feature from idea to production in a public repository: a written plan, tests, a small deployment and a README that explains the trade-offs you made.",
+      closeSkill: "",
+      closeWhy: "",
+    }),
+  ];
 }
 
 /** What the Scout would have read from GitHub. Fictional projects. */
@@ -615,6 +931,8 @@ function seedPortfolio(today: string): PortfolioRepo[] {
     topics: [],
     stack,
     skills,
+    title: name === "beacon-agents" ? "Beacon" : "",
+    readme: `${description}\nBuilt to try ${stack.join(", ")} on a real problem.`,
     pushedAt: new Date(`${addDays(today, -n * 3)}T15:00:00Z`).toISOString(),
     checkedOn: today,
     createdAt: new Date(`${addDays(today, -30)}T15:00:00Z`).toISOString(),
@@ -626,7 +944,74 @@ function seedPortfolio(today: string): PortfolioRepo[] {
   ];
 }
 
+/** A sample description for the demo's first role, as the Career Mentor would write it from a web search. Fictional sources. */
+function seedRoleDescriptions(today: string): RoleDescription[] {
+  return [
+    {
+      id: "role-description-1",
+      role: TARGET_ROLES[0]!.name,
+      forMonth: today.slice(0, 7),
+      description:
+        "A Solutions Engineer is the technical partner on a sale and the first weeks after it: they learn what a customer needs, show how the product meets it, and build the integration or proof that it works. Unlike a Sales Engineer, the role often carries on into implementation; unlike a Solutions Architect, it works account by account rather than designing whole systems.",
+      sources: [
+        { title: "Sample: what a solutions engineer does", url: "https://example.com/solutions-engineer", host: "example.com" },
+        { title: "Sample: solutions engineer vs sales engineer", url: "https://example.org/se-vs-sales", host: "example.org" },
+      ],
+      postings: 6,
+      searchedOn: today,
+      createdAt: `${today}T15:00:00.000Z`,
+    },
+  ];
+}
+
+/** Three weeks of daily skill counts, as the Analyst would have logged them from the demo's postings. Fictional. */
+function seedRoleSkills(today: string): RoleSkillStat[] {
+  const postings = seedMarket(today);
+  return Array.from({ length: 21 }, (_, d) => addDays(today, -d - 1)).flatMap((day) =>
+    skillSnapshot({ boards: postings, searches: [], roles: TARGET_ROLES.map((r) => r.name), day, windowDays: 30 }).map((r, i) => ({ ...r, id: `role-skills-${day}-${i}`, createdAt: `${day}T14:00:00.000Z` })),
+  );
+}
+
 /** What the Scout would have recorded over the last three weeks. Fictional companies and numbers. */
+/**
+ * Demo only: two weeks of made-up market summary rows, so the demo has a history before the
+ * Scout's first run. Deterministic; every number is invented.
+ */
+function seedMarketDaily(today: string): DailyRow[] {
+  const base: Partial<Record<DailyRow["family"], number>> = { software: 420, "ai-ml": 160, data: 120, "devops-cloud": 90, security: 50, solutions: 40, product: 60, "it-support": 30 };
+  const pay: Partial<Record<DailyRow["family"], number>> = { software: 152_000, "ai-ml": 178_000, data: 141_000, "devops-cloud": 149_000, security: 146_000, solutions: 138_000, product: 144_000, "it-support": 72_000 };
+  const out: DailyRow[] = [];
+  for (let d = 13; d >= 0; d--) {
+    const day = addDays(today, -d);
+    for (const [family, n] of Object.entries(base) as [DailyRow["family"], number][]) {
+      for (const [seniority, share] of [["senior", 0.45], ["unstated", 0.4], ["junior", 0.15]] as const) {
+        for (const [region, rShare] of [["us", 0.9], ["utah", 0.1]] as const) {
+          const active = Math.round(n * share * rShare * (1 + ((13 - d) % 5) * 0.01 + (family === "ai-ml" ? (13 - d) * 0.006 : 0)));
+          out.push({ day, family, seniority, region, active, added: Math.round(active * 0.12), gone: Math.round(active * 0.1), remote: Math.round(active * (region === "utah" ? 0.3 : 0.55)), withPay: Math.round(active * 0.4), payMedian: Math.round((pay[family]! * (seniority === "senior" ? 1.12 : seniority === "junior" ? 0.78 : 1)) / 1000) * 1000 });
+        }
+      }
+    }
+  }
+  return out;
+}
+
+/** Demo only: two years of invented monthly JOLTS values, so the National trend panel has a shape. */
+function seedBenchmarks(today: string): BenchmarkPoint[] {
+  const out: BenchmarkPoint[] = [];
+  const [y, m] = [Number(today.slice(0, 4)), Number(today.slice(5, 7))];
+  // JOLTS runs about two months behind.
+  for (let i = 25; i >= 2; i--) {
+    const d = new Date(Date.UTC(y, m - 1 - i, 1)).toISOString().slice(0, 10);
+    const wave = Math.sin(i / 4);
+    out.push({ seriesId: "JTS510000000000000JOL", period: d, value: Math.round(105 + wave * 12 - i * 0.4), preliminary: i === 2 });
+    out.push({ seriesId: "JTS510000000000000JOR", period: d, value: Math.round((3.4 + wave * 0.4) * 10) / 10, preliminary: i === 2 });
+    out.push({ seriesId: "JTS510000000000000HIL", period: d, value: Math.round(82 + wave * 8), preliminary: i === 2 });
+    out.push({ seriesId: "JTS510000000000000QUL", period: d, value: Math.round(40 + wave * 3), preliminary: i === 2 });
+    out.push({ seriesId: "JTS000000000000000JOL", period: d, value: Math.round(7400 + wave * 300), preliminary: i === 2 });
+  }
+  return out;
+}
+
 function seedMarket(today: string): MarketPosting[] {
   const roles = TARGET_ROLES.slice(0, 4).map((r) => r.name);
   const mix: [number, string[], number | null, MarketPosting["place"]][] = [
@@ -643,7 +1028,7 @@ function seedMarket(today: string): MarketPosting[] {
     [3, ["TypeScript", "Kubernetes", "AWS"], 155_000, "other"],
     [3, ["Python", "SQL", "Docker"], null, "remote"],
   ];
-  // Twice over, so each role has enough postings for the Mentor to judge its place.
+  // Twice over, so each role has enough postings for the Career Mentor to judge its place.
   return [...mix, ...mix].flatMap(([r, skills, pay, place], i) =>
     roles[r]
       ? [
@@ -656,7 +1041,6 @@ function seedMarket(today: string): MarketPosting[] {
             url: `https://jobs.example/market/${i + 1}`,
             location: place === "remote" ? "Remote (US)" : place === "salt-lake" ? "Salt Lake City, UT" : "Austin, TX",
             role: roles[r]!,
-            type: "full-time" as const,
             place,
             payMin: pay ? pay - 10_000 : null,
             payMax: pay ? pay + 10_000 : null,

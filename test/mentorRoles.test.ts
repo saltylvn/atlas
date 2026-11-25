@@ -3,7 +3,6 @@ import { describe, expect, it } from "vitest";
 import { AGENTS } from "@/lib/domain/agents";
 import { parseJobicy, REMOTE_BOARDS } from "@/lib/integrations/jobFeeds";
 import type { MarketPosting } from "@/lib/domain/market";
-import { roleRowsFromNotion } from "@/lib/domain/notionRoles";
 import { dependencyNames, describeRepo, isShown, portfolioFrom, skillEvidence, type RawRepo } from "@/lib/domain/portfolio";
 import {
   acceptJudgment,
@@ -12,7 +11,6 @@ import {
   ORDER_MIN_POSTINGS,
   outlookFact,
   outlookToStore,
-  priorityPlan,
   roleOutlook,
   withoutPrivate,
   worthProposing,
@@ -99,7 +97,7 @@ describe("skill evidence", () => {
 let n = 0;
 const posting = (role: string, skills: string[], over: Partial<MarketPosting> = {}): MarketPosting => {
   n++;
-  return { id: `p${n}`, key: `k${n}`, title: role, company: `Co${n}`, source: "Jobicy", url: `https://x.example/${n}`, location: "Remote", role, type: "full-time", place: "remote", payMin: 130_000, payMax: 150_000, payUnit: "year", skills, postedAt: null, firstSeen: "2026-11-12", lastSeen: "2026-11-15", createdAt: "2026-11-12T00:00:00Z", ...over };
+  return { id: `p${n}`, key: `k${n}`, title: role, company: `Co${n}`, source: "Jobicy", url: `https://x.example/${n}`, location: "Remote", role, place: "remote", payMin: 130_000, payMax: 150_000, payUnit: "year", skills, postedAt: null, firstSeen: "2026-11-12", lastSeen: "2026-11-15", createdAt: "2026-11-12T00:00:00Z", ...over };
 };
 const many = (count: number, role: string, skills: string[], over: Partial<MarketPosting> = {}) => Array.from({ length: count }, () => posting(role, skills, over));
 const roles = (names: string[]) => rolesFrom(names);
@@ -116,48 +114,48 @@ describe("candidate roles", () => {
 describe("roleOutlook", () => {
   const postings = [
     ...many(6, "AI Engineer", ["Kubernetes", "Python"]),
-    ...many(8, "AI Workflow Engineer", ["AI agents", "Workflow automation"]),
-    ...many(2, "GTM Engineer", ["Salesforce"]),
-    ...many(6, "Developer Advocate", ["TypeScript", "AI agents"], { payMin: 90_000, payMax: 100_000 }),
+    ...many(8, "AI Automation Engineer", ["AI agents", "Workflow automation"]),
+    ...many(2, "Forward Deployed Engineer", ["Salesforce"]),
+    ...many(6, "Data Engineer", ["TypeScript", "AI agents"], { payMin: 90_000, payMax: 100_000 }),
   ];
-  const out = roleOutlook(postings, roles(["AI Engineer", "AI Workflow Engineer", "GTM Engineer"]), candidatesBeyond(roles(["AI Engineer", "AI Workflow Engineer", "GTM Engineer"])), evidence, [], TODAY);
+  const out = roleOutlook(postings, roles(["AI Engineer", "AI Automation Engineer", "Forward Deployed Engineer"]), candidatesBeyond(roles(["AI Engineer", "AI Automation Engineer", "Forward Deployed Engineer"])), evidence, [], TODAY);
   const of = (role: string) => out.find((o) => o.role === role)!;
 
   it("measures what you can show, weighted by how often each skill is asked", () => {
     // Kubernetes is only ticked: it does not count. Python is in a project.
     expect(of("AI Engineer").qualified).toBe(0.5);
     expect(of("AI Engineer").asked.find((a) => a.skill === "Kubernetes")).toMatchObject({ shown: false, share: 1 });
-    expect(of("AI Workflow Engineer").qualified).toBe(1);
-    expect(of("AI Workflow Engineer").projects).toEqual(["relay"]);
+    expect(of("AI Automation Engineer").qualified).toBe(1);
+    expect(of("AI Automation Engineer").projects).toEqual(["relay"]);
   });
 
   it("marks a role with too few postings as thin and gives it no score", () => {
-    expect(of("GTM Engineer")).toMatchObject({ thin: true, score: 0, postings: 2 });
-    expect(outlookFact(of("GTM Engineer"))).toBe("GTM Engineer: 2 postings in the last 30 days, too few to judge.");
+    expect(of("Forward Deployed Engineer")).toMatchObject({ thin: true, score: 0, postings: 2 });
+    expect(outlookFact(of("Forward Deployed Engineer"))).toBe("Forward Deployed Engineer: 2 postings in the last 30 days, too few to judge.");
   });
 
   it("lists your roles in your order, then candidates by score, and scores qualification highest", () => {
-    expect(out.slice(0, 3).map((o) => o.role)).toEqual(["AI Engineer", "AI Workflow Engineer", "GTM Engineer"]);
-    expect(out[3]).toMatchObject({ role: "Developer Advocate", target: false });
-    expect(of("AI Workflow Engineer").score).toBeGreaterThan(of("AI Engineer").score + ORDER_MARGIN);
+    expect(out.slice(0, 3).map((o) => o.role)).toEqual(["AI Engineer", "AI Automation Engineer", "Forward Deployed Engineer"]);
+    expect(out[3]).toMatchObject({ role: "Data Engineer", target: false });
+    expect(of("AI Automation Engineer").score).toBeGreaterThan(of("AI Engineer").score + ORDER_MARGIN);
     // Pay under your floor costs a little; it does not decide.
-    expect(of("Developer Advocate").payMedian).toBe(95_000);
+    expect(of("Data Engineer").payMedian).toBe(95_000);
   });
 
   it("ignores postings older than the window and nudges the score by your own results", () => {
-    const old = roleOutlook(many(6, "AI Engineer", ["Python"], { lastSeen: "2026-09-01", firstSeen: "2026-09-01" }), roles(["AI Engineer", "GTM Engineer"]), [], evidence, [], TODAY);
+    const old = roleOutlook(many(6, "AI Engineer", ["Python"], { lastSeen: "2026-09-01", firstSeen: "2026-09-01" }), roles(["AI Engineer", "Forward Deployed Engineer"]), [], evidence, [], TODAY);
     expect(old[0]).toMatchObject({ postings: 0, thin: true });
     const apps = (status: "applied" | "interview") => Array.from({ length: 5 }, () => ({ targetRole: "AI Engineer", status, appliedOn: "2026-11-01" }));
-    const base = roleOutlook(postings, roles(["AI Engineer", "AI Workflow Engineer"]), [], evidence, [], TODAY)[0]!.score;
-    expect(roleOutlook(postings, roles(["AI Engineer", "AI Workflow Engineer"]), [], evidence, apps("applied"), TODAY)[0]!.score).toBeLessThan(base);
-    expect(roleOutlook(postings, roles(["AI Engineer", "AI Workflow Engineer"]), [], evidence, apps("interview"), TODAY)[0]!.score).toBeGreaterThan(base);
+    const base = roleOutlook(postings, roles(["AI Engineer", "AI Automation Engineer"]), [], evidence, [], TODAY)[0]!.score;
+    expect(roleOutlook(postings, roles(["AI Engineer", "AI Automation Engineer"]), [], evidence, apps("applied"), TODAY)[0]!.score).toBeLessThan(base);
+    expect(roleOutlook(postings, roles(["AI Engineer", "AI Automation Engineer"]), [], evidence, apps("interview"), TODAY)[0]!.score).toBeGreaterThan(base);
   });
 
   it("is stored without the thin candidates, and shown to a model without private project names", () => {
-    expect(outlookToStore(out).map((o) => o.role)).toEqual(["AI Engineer", "AI Workflow Engineer", "GTM Engineer", "Developer Advocate"]);
+    expect(outlookToStore(out).map((o) => o.role)).toEqual(["AI Engineer", "AI Automation Engineer", "Forward Deployed Engineer", "Data Engineer"]);
     const masked = withoutPrivate(out, new Set(["relay"]));
     expect(JSON.stringify(masked)).not.toContain("relay");
-    expect(masked.find((o) => o.role === "AI Workflow Engineer")!.projects).toEqual(["a private project"]);
+    expect(masked.find((o) => o.role === "AI Automation Engineer")!.projects).toEqual(["a private project"]);
   });
 });
 
@@ -237,7 +235,7 @@ describe("worthProposing", () => {
     expect(worthProposing(draft, prior("new", "2026-11-01"), TODAY)).toBe(false);
   });
 
-  it("rests after your decision, and after the Mentor's own", () => {
+  it("rests after your decision, and after the Career Mentor's own", () => {
     expect(worthProposing(draft, prior("approved", "2026-11-12"), TODAY)).toBe(false);
     expect(worthProposing(draft, prior("approved", "2026-11-08"), TODAY)).toBe(true);
     expect(worthProposing(draft, prior("dismissed", "2026-11-01"), TODAY)).toBe(false);
@@ -250,46 +248,6 @@ describe("worthProposing", () => {
   });
 });
 
-describe("priorityPlan", () => {
-  const rows = [
-    { name: "Master Resume", priority: 1, master: true },
-    { name: "AI Engineer", priority: 2, master: false },
-    { name: "AI + Automation Engineer", priority: 3, master: false },
-    { name: "GTM Engineer", priority: 8, master: false },
-  ];
-
-  it("re-numbers only the rows that move, and never the Master Resume", () => {
-    expect(priorityPlan(rows, ["AI + Automation Engineer", "AI Engineer", "GTM Engineer"])).toEqual({ set: [{ name: "AI + Automation Engineer", priority: 2 }, { name: "AI Engineer", priority: 3 }, { name: "GTM Engineer", priority: 4 }], create: [] });
-    expect(priorityPlan(rows.slice(0, 3), ["AI Engineer", "AI + Automation Engineer"])).toEqual({ set: [], create: [] });
-  });
-
-  it("lists a role being added as a new row with its number", () => {
-    const plan = priorityPlan(rows, ["Developer Advocate", "AI Engineer", "AI + Automation Engineer", "GTM Engineer"]);
-    expect(plan.create).toEqual([{ name: "Developer Advocate", priority: 2 }]);
-    expect(plan.set.map((s) => s.priority)).toEqual([3, 4, 5]);
-  });
-
-  it("skips a number the Master Resume already holds", () => {
-    const plan = priorityPlan([{ name: "Master Resume", priority: 2, master: true }, { name: "A", priority: 1, master: false }, { name: "B", priority: 3, master: false }], ["B", "A"]);
-    expect(plan.set).toEqual([{ name: "B", priority: 1 }, { name: "A", priority: 3 }]);
-  });
-});
-
-describe("the Resumes rows for writing", () => {
-  const row = (name: string, priority: number) => ({ id: "417a12ce-4491-8198-8f23-e8c77e5e0373", properties: { Role: { type: "title", title: [{ plain_text: name }] }, Priority: { type: "number", number: priority }, Rank: { type: "number", number: 99 } } });
-
-  it("finds the title and Priority columns by name, and keeps the Master Resume apart", () => {
-    const got = roleRowsFromNotion([row("Master Resume", 1), row("Forward Deployed Engineer (FDE)", 6)])!;
-    expect(got).toMatchObject({ titleProp: "Role", priorityProp: "Priority" });
-    expect(got.rows).toEqual([
-      { pageId: "417a12ce-4491-8198-8f23-e8c77e5e0373", name: "Master Resume", priority: 1, master: true },
-      { pageId: "417a12ce-4491-8198-8f23-e8c77e5e0373", name: "Forward Deployed Engineer", priority: 6, master: false },
-    ]);
-    expect(roleRowsFromNotion([{ id: "x", properties: { Name: { type: "title", title: [] } } }])).toBeNull();
-    expect(roleRowsFromNotion(null)).toBeNull();
-  });
-});
-
 describe("who may do what", () => {
   const read = (p: string) => readFileSync(p, "utf8");
 
@@ -299,7 +257,7 @@ describe("who may do what", () => {
     expect(src).toContain("api.github.com");
   });
 
-  it("lets the Mentor propose, never write your roles", () => {
+  it("lets the Career Mentor propose, never write your roles", () => {
     const src = read("lib/agents/mentorRoles.ts");
     expect(src).not.toMatch(/integrations\/notion|settings\.update|writeRolePriority|createRoleRow/);
     expect(src).toContain('takeAiCallWithin(ctx.store, ctx.settings, "mentor:roles", wait)');
@@ -309,14 +267,17 @@ describe("who may do what", () => {
 
   it("writes an approved order from one place: your decision", () => {
     const action = read("app/actions/roles.ts");
-    expect(action).toContain("writeRolePriority(");
+    expect(action).toContain("const approved = optionNames(proposal.proposed);");
+    expect(action).toContain("store.settings.update({ careerRoles: approved })");
     expect(action).toContain('proposal.status !== "new"');
-    for (const f of ["lib/agents/mentor.ts", "lib/agents/mentorRoles.ts", "lib/agents/analyst.ts", "lib/agents/scout.ts", "lib/agents/portfolio.ts", "lib/agents/cron.ts", "lib/agents/sync.ts"]) expect(read(f)).not.toMatch(/writeRolePriority|createRoleRow/);
+    // Atlas owns the order: approving a proposal never writes to Notion.
+    expect(action).not.toMatch(/integrations\/notion/);
+    for (const f of ["lib/agents/mentor.ts", "lib/agents/mentorRoles.ts", "lib/agents/analyst.ts", "lib/agents/scout.ts", "lib/agents/portfolio.ts", "lib/agents/cron.ts", "lib/agents/sync.ts"]) expect(read(f)).not.toMatch(/careerRoles/);
   });
 
   it("says on the roster which agents use an AI model", () => {
     const uses = AGENTS.filter((a) => a.ai).map((a) => a.id).sort();
-    expect(uses).toEqual(["analyst", "career", "chief-of-staff", "mentor"]);
+    expect(uses).toEqual(["analyst", "apply", "career", "chief-of-staff", "mentor"]);
     // The Scout reads GitHub and the job feeds by rules: nothing of yours goes to a model there.
     expect(read("lib/agents/scout.ts") + read("lib/agents/portfolio.ts")).not.toMatch(/@\/lib\/ai\//);
   });
@@ -381,6 +342,6 @@ describe("showing where the AI model judges", () => {
     const card = read("components/AiJudgmentCard.tsx");
     expect(card).toContain("AGENTS.filter((a) => a.ai");
     // The roster's "ai" field is the one source both read.
-    for (const a of AGENTS) expect(Boolean(a.ai)).toBe(["chief-of-staff", "analyst", "career", "mentor"].includes(a.id));
+    for (const a of AGENTS) expect(Boolean(a.ai)).toBe(["chief-of-staff", "analyst", "career", "mentor", "apply"].includes(a.id));
   });
 });

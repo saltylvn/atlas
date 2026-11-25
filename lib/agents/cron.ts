@@ -4,7 +4,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { audit } from "@/lib/audit";
 import type { Context } from "@/lib/context";
 import { isSyncDay, scheduledSlot } from "@/lib/domain/briefSchedule";
-import { localDate, localTime, zonedToUtc } from "@/lib/domain/dates";
+import { addDays, localDate, localTime, zonedToUtc } from "@/lib/domain/dates";
 import { SCHEDULED_LIMIT_MS } from "@/lib/domain/deadline";
 import { sendToAll } from "@/lib/push";
 import { env, mode } from "@/lib/env";
@@ -14,18 +14,26 @@ import { bearerMatches } from "@/lib/security/bearer";
 import { noteRefusedToken } from "@/lib/security/refusedToken";
 import { runChiefOfStaff } from "./chiefOfStaff";
 import { runQa } from "./qa";
+import { NIGHT_HOURS, runNightShift } from "./nightShift";
 import { logEvalRun } from "./evals";
 import { logRun } from "./log";
 import { MENTOR_TASK, runMentor } from "./mentor";
-import { needsYou } from "@/lib/domain/resumeSync";
+import { isResumeSyncDay, weeklyResumeNotice } from "@/lib/domain/resumeSync";
 import { RESUME_SYNC_TASK, resumeSyncReady, runResumeSync } from "./resumeSync";
+import type { AgentMissing } from "@/lib/domain/chiefOfStaff";
+import { isProfileDay } from "@/lib/domain/roleProfile";
+import { ROLE_PROFILES_TASK, runRoleProfiles } from "./roleProfiles";
+import { runRoleDescriptions } from "./roleDescriptions";
+import { BENCHMARK_TASK, runBenchmarks } from "./benchmarks";
+import { runTypeCheck, TYPE_CHECK_TASK } from "./typeCheck";
+import { CAREER_MAP_TASK, runCareerMap } from "./careerMap";
 
 // The scheduler. Vercel Cron calls /api/cron/morning and /api/cron/afternoon with
 // `Authorization: Bearer $CRON_SECRET`, early enough that each brief is ready by
 // 9:00 AM and 2:00 PM Mountain time. Weekend Mode and pause switches are applied here.
 // A call with a missing or wrong token answers 401 and is counted for the audit trail.
 
-export async function handleCron(request: NextRequest, wanted: "morning" | "afternoon" | "evening" | "qa"): Promise<NextResponse> {
+export async function handleCron(request: NextRequest, wanted: "morning" | "afternoon" | "evening" | "qa" | "night"): Promise<NextResponse> {
   if (!bearerMatches(request.headers.get("authorization"), env().CRON_SECRET)) {
     noteRefusedToken(`/api/cron/${wanted}`, request.headers.get("authorization"));
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
@@ -43,6 +51,14 @@ export async function handleCron(request: NextRequest, wanted: "morning" | "afte
   const ctx = { mode: "live" as const, userId: ownerUserId() ?? "", store, settings, now, today, time: localTime(now, settings.timezone), deadline, patient: true };
 
   if (wanted === "evening") return eveningRun(ctx);
+  if (wanted === "night") {
+    // The night shift: only in its hours on your clock (the scheduler calls in the UTC hours for both sides of daylight saving).
+    if (!NIGHT_HOURS.includes(Number(ctx.time.slice(0, 2)))) return NextResponse.json({ ok: true, skipped: "not the night hours" });
+    const res = await runNightShift(ctx, { trigger: "schedule", persist: store, honorPause: true });
+    const failed = "missing" in res && res.missing === "failed";
+    await audit(store, { actor: "system", action: "cron.night", target: "night-shift", detail: "missing" in res ? res.missing : `${res.researched.length} researched, ${res.tailored.length} tailored: ${res.stopped}`.slice(0, 200), outcome: failed ? "error" : "success" });
+    return NextResponse.json({ ok: !failed, night: "missing" in res ? res.missing : res.stopped });
+  }
   if (wanted === "qa") {
     // The weekly review of Atlas itself. It reads the week's records and writes its own report.
     const res = await runQa(ctx, { trigger: "schedule", honorPause: true, persist: store });
@@ -85,12 +101,12 @@ export async function handleCron(request: NextRequest, wanted: "morning" | "afte
   return NextResponse.json({ ok: outcome.status !== "failed", slot, brief: outcome.status });
 }
 
-/** The Mentor's evening hours on the owner's clock. The scheduler's timing is approximate, so any of them counts. */
+/** The Career Mentor's evening hours on the owner's clock. The scheduler's timing is approximate, so any of them counts. */
 export const EVENING_HOURS: readonly number[] = [17, 18, 19];
 
 /**
  * The evening run, Monday to Saturday, once, about 6 PM: first the Applications Agent's
- * resume sync (Figma to Notion), then the Mentor's evening review, so the Mentor sees
+ * resume sync (Figma to Notion), then the Career Mentor's evening review, so the Career Mentor sees
  * tonight's resume text. The scheduler calls in two candidate hours (daylight saving moves
  * the UTC hour); the second call finds the first one's runs in the activity log and stops.
  * Each half is checked on its own, so one failing never blocks or repeats the other.
@@ -103,27 +119,65 @@ async function eveningRun(ctx: Context & { mode: "live" }): Promise<NextResponse
   const ranToday = (task: string) => runs.some((r) => r.task === task && r.status !== "failed");
 
   let resumes = "not set up";
-  if (resumeSyncReady() && !ranToday(RESUME_SYNC_TASK)) {
+  // Once a week, on Monday: Figma's free plan allows only a handful of file reads a month.
+  if (resumeSyncReady() && !isResumeSyncDay(ctx.today)) resumes = "runs on Mondays";
+  else if (resumeSyncReady() && !ranToday(RESUME_SYNC_TASK)) {
     const res = await runResumeSync(ctx, { trigger: "schedule", honorPause: true, persist: ctx.store });
     resumes = "missing" in res ? res.missing : res.headline;
     if ("missing" in res && res.missing === "failed") await audit(ctx.store, { actor: "system", action: "cron.evening", target: "resume-sync", detail: "resume sync failed", outcome: "error" });
-    // A change is worth knowing about tonight: the PDF you send is now behind the design.
-    if (!("missing" in res) && (res.report.updated.length > 0 || needsYou(res.report)) && ctx.settings.outboundEnabled) {
-      const n = res.report.updated.length;
-      await sendToAll(ctx.store, {
-        title: n > 0 ? `${n} resume${n === 1 ? "" : "s"} updated from Figma` : "Resume sync needs a look",
-        body: n > 0 ? "The text is in Notion and Ask Atlas. Re-export the PDF and attach it to the row." : "A resume changed in both Figma and Notion, or a frame could not be read.",
-        url: "/roles",
-      }).catch(() => undefined);
-    }
+    // Every Monday you are told how the weekly update went, changed or not.
+    if (ctx.settings.outboundEnabled) await sendToAll(ctx.store, weeklyResumeNotice("missing" in res ? null : res.report, "missing" in res ? res.why : "")).catch(() => undefined);
   } else if (resumeSyncReady()) resumes = "already ran today";
 
-  if (ranToday(MENTOR_TASK.evening)) return NextResponse.json({ ok: true, resumes, mentor: "already ran today" });
-  const res = await runMentor(ctx, "evening", { trigger: "schedule", honorPause: true, persist: ctx.store });
-  const failed = "missing" in res && res.missing === "failed";
-  if (!("missing" in res) && res.insights.length > 0 && ctx.settings.outboundEnabled) {
-    await sendToAll(ctx.store, { title: `Mentor: ${res.insights[0]!.title}`.slice(0, 120), body: "Your evening review is in Atlas.", url: "/growth" }).catch(() => undefined);
+  let mentor = "already ran today";
+  let failed = false;
+  if (!ranToday(MENTOR_TASK.evening)) {
+    const res = await runMentor(ctx, "evening", { trigger: "schedule", honorPause: true, persist: ctx.store });
+    failed = "missing" in res && res.missing === "failed";
+    if (!("missing" in res) && res.insights.length > 0 && ctx.settings.outboundEnabled) {
+      await sendToAll(ctx.store, { title: `Career Mentor: ${res.insights[0]!.title}`.slice(0, 120), body: "Your evening review is in Atlas.", url: "/growth" }).catch(() => undefined);
+    }
+    if (failed) await audit(ctx.store, { actor: "system", action: "cron.evening", target: "mentor", detail: "mentor failed", outcome: "error" });
+    mentor = "missing" in res ? res.missing : `${res.insights.length} insights`;
   }
-  if (failed) await audit(ctx.store, { actor: "system", action: "cron.evening", target: "mentor", detail: "mentor failed", outcome: "error" });
-  return NextResponse.json({ ok: !failed, resumes, mentor: "missing" in res ? res.missing : `${res.insights.length} insights` });
+
+  // Once a week, on Monday, after the review: the Career Mentor describes your five roles for
+  // the Target Roles page. It runs last, so it never takes the review's time, and a failure
+  // here does not fail the evening run.
+  let profiles = "runs on Mondays";
+  if (isProfileDay(ctx.today)) {
+    if (ranToday(ROLE_PROFILES_TASK)) profiles = "already ran today";
+    else {
+      const p = await runRoleProfiles(ctx, { trigger: "schedule", honorPause: true, persist: ctx.store }).catch((): AgentMissing => ({ missing: "failed", why: "unexpected error" }));
+      profiles = "missing" in p ? p.missing : p.headline;
+      // Once a month, on the first Monday: what each role is about, from postings and a web search.
+      const d = await runRoleDescriptions(ctx, { trigger: "schedule", honorPause: true, persist: ctx.store }).catch((): AgentMissing => ({ missing: "failed", why: "unexpected error" }));
+      profiles += ` ${"missing" in d ? `Descriptions: ${d.missing}.` : d.headline}`;
+    }
+  }
+  // Once a week, on Monday (or any evening while none is stored yet): the national benchmarks.
+  // Last, so a slow government API never takes the review's time; a failure here is logged and
+  // does not fail the evening run.
+  let benchmarks = "runs on Mondays";
+  const stored = await ctx.store.benchmarks.since(addDays(ctx.today, -150)).catch(() => []);
+  if (ranToday(BENCHMARK_TASK)) benchmarks = "already ran today";
+  else if (isResumeSyncDay(ctx.today) || stored.length === 0) {
+    const b = await runBenchmarks(ctx, { trigger: "schedule", honorPause: true, persist: ctx.store }).catch((): AgentMissing => ({ missing: "failed", why: "unexpected error" }));
+    benchmarks = "missing" in b ? b.missing : b.headline;
+  }
+  // Daily, last: an AI second opinion on 40 jobs' engineering-type labels (one model call, display-only).
+  let typeCheck = "already ran today";
+  if (!ranToday(TYPE_CHECK_TASK)) {
+    const c = await runTypeCheck(ctx, { trigger: "schedule" }).catch((): AgentMissing => ({ missing: "failed", why: "unexpected error" }));
+    typeCheck = "missing" in c ? c.missing : c.headline;
+  }
+  // Weekly, on Monday (or any evening while none is stored): the Career Map, after the benchmarks
+  // so its official pay figures are this week's. Five model calls at most; a failure is logged only.
+  let careerMap = "runs on Mondays";
+  if (ranToday(CAREER_MAP_TASK)) careerMap = "already ran today";
+  else if (isResumeSyncDay(ctx.today) || (await ctx.store.careerMaps.latest(1).catch(() => [])).length === 0) {
+    const m = await runCareerMap(ctx, { trigger: "schedule", persist: ctx.store }).catch((): AgentMissing => ({ missing: "failed", why: "unexpected error" }));
+    careerMap = "missing" in m ? m.missing : m.headline;
+  }
+  return NextResponse.json({ ok: !failed, resumes, mentor, profiles, benchmarks, typeCheck, careerMap });
 }

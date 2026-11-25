@@ -6,9 +6,11 @@ import { ACTIVE_STAGES } from "@/lib/domain/jobs";
 import { summarizePipeline } from "@/lib/domain/jobs";
 import { scanBoards } from "@/lib/integrations/jobBoards";
 import { buildDoNext, type DoNextInput } from "@/lib/domain/career";
-import type { JobWatch } from "@/lib/domain/types";
+import { JOB_BOARD_INFO, type JobWatch } from "@/lib/domain/types";
 import { DoNextList } from "@/components/DoNextList";
-import { UnwatchButton, WatchForm } from "@/components/client/WatchForm";
+import { SuggestWatchButton, UnwatchButton, WatchForm } from "@/components/client/WatchForm";
+import { suggestedUtah } from "@/lib/domain/utahSeed";
+import { BoardFinder } from "@/components/client/BoardFinder";
 import { Icon } from "@/components/Icon";
 import { CardHeader, Empty, PageHeader, Pill, hue, timeAgo } from "@/components/ui";
 import { careerPrefs } from "@/lib/agents/career";
@@ -19,16 +21,16 @@ export const metadata = { title: "Job watchlist" };
 
 const STAGE_COLOR: Record<string, string> = {
   Draft: "var(--c-grey)",
-  Applied: "var(--c-blue)",
-  Reply: "var(--c-teal)",
-  "Interview 1": "var(--c-purple)",
-  "Interview 2": "var(--c-purple)",
-  "Interview 3": "var(--c-purple)",
-  "Interview 4": "var(--c-purple)",
+  Applied: "var(--c-slate)",
+  Reply: "var(--c-warn)",
+  "Interview 1": "var(--c-indigo)",
+  "Interview 2": "var(--c-indigo)",
+  "Interview 3": "var(--c-indigo)",
+  "Interview 4": "var(--c-indigo)",
   Offer: "var(--c-green)",
   Rejected: "var(--c-red)",
   Withdrawn: "var(--c-grey)",
-  "On Hold": "var(--c-orange)",
+  "On Hold": "var(--c-warn)",
 };
 
 export default async function JobsPage() {
@@ -64,18 +66,18 @@ export default async function JobsPage() {
         <section className="card card-pad">
           <CardHeader title="No applications yet" icon="jobs" />
           <p className="text-sm text-ink-2">
-            The Applications Agent adds an application whenever a company emails to thank you for applying. Open Applications to find past ones in Gmail, or add one by hand.
+            The Applications bot adds an application whenever a company emails to thank you for applying. Open the Pipeline to find past ones in Gmail, or add one by hand.
           </p>
           <Link href="/applications" className="btn btn-primary btn-sm mt-3">
-            Open Applications
+            Open the Pipeline
           </Link>
         </section>
       ) : (
         <>
           <section className="grid grid-cols-2 gap-3 md:grid-cols-4">
             {[
-              ["Active", pipeline!.active, "var(--c-blue)"],
-              ["Interviewing", pipeline!.interviewing, "var(--c-purple)"],
+              ["Active", pipeline!.active, "var(--c-slate)"],
+              ["Interviewing", pipeline!.interviewing, "var(--c-indigo)"],
               ["Offers", pipeline!.offers, "var(--c-green)"],
               ["Closed", pipeline!.closed, "var(--c-grey)"],
             ].map(([label, n, color]) => (
@@ -88,9 +90,9 @@ export default async function JobsPage() {
             ))}
           </section>
           <p className="text-xs text-ink-3">
-            From your Applications board and the interviews on your calendar.{" "}
+            From your applications and the interviews on your calendar.{" "}
             <Link href="/applications" className="font-medium text-brand hover:underline">
-              Open the board
+              Open the Pipeline
             </Link>
           </p>
 
@@ -98,7 +100,7 @@ export default async function JobsPage() {
         <CardHeader
           title={`Job boards the Analyst works from (${JOB_SOURCES.length})`}
           icon="jobs"
-          hint="The Scout reads these at every 2-hour sync and records each posting; the Analyst's market report and the Mentor's role advice use only what it recorded. Counts are the last 30 days."
+          hint="The Scout reads these at every 2-hour sync and records each posting; the Analyst's market report and the Career Mentor's role advice use only what it recorded. Counts are the last 30 days."
         />
         <ul className="divide-y divide-line">
           {JOB_SOURCES.map((src) => {
@@ -115,7 +117,7 @@ export default async function JobsPage() {
                     ) : (
                       src.name
                     )}
-                    {down ? <Pill color="var(--c-orange)">Did not answer last run</Pill> : <Pill color="var(--c-green)">Read</Pill>}
+                    {down ? <Pill color="var(--c-warn)">Did not answer last run</Pill> : <Pill color="var(--c-green)">Read</Pill>}
                   </p>
                   <p className="text-xs text-ink-3 break-words">{src.what}{src.kind === "watchlist" ? ` ${watches.length} compan${watches.length === 1 ? "y" : "ies"} watched.` : ""}</p>
                 </div>
@@ -186,7 +188,7 @@ export default async function JobsPage() {
                 ) : (
                   <ul className="space-y-2">
                     {pipeline!.upcomingInterviews.map((i) => (
-                      <li key={i.interviewId} className="rounded-lg border-l-4 bg-surface-2 px-3 py-2" style={{ borderLeftColor: "var(--c-pink)" }}>
+                      <li key={i.interviewId} className="rounded-lg border-l-4 bg-surface-2 px-3 py-2" style={{ borderLeftColor: "var(--c-career)" }}>
                         <p className="text-sm font-semibold">{i.company}</p>
                         <p className="text-xs text-ink-2">
                           {i.round} · {new Date(i.start).toLocaleString("en-US", { timeZone: tz, weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })} · {i.status}
@@ -228,13 +230,38 @@ export default async function JobsPage() {
             {watches.map((w) => (
               <li key={w.id} className="flex items-center justify-between py-1.5 text-sm">
                 <span>
-                  {w.company} <span className="text-xs text-ink-3">· {w.board}</span>
+                  {w.company} <span className="text-xs text-ink-3">· {JOB_BOARD_INFO[w.board].label}</span>
                 </span>
                 <UnwatchButton id={w.id} company={w.company} />
               </li>
             ))}
           </ul>
           <WatchForm />
+          <div className="mt-5">
+            <p className="eyebrow">Find a company&apos;s board</p>
+            <div className="mt-2">
+              <BoardFinder />
+            </div>
+          </div>
+          {suggestedUtah(watches).length > 0 && (
+            <div className="mt-5">
+              <p className="eyebrow">Suggested: Utah tech companies</p>
+              <p className="mt-1 text-xs text-ink-3">Each board checked by its public API. Nothing is watched until you press Watch.</p>
+              <ul className="mt-2 divide-y divide-line">
+                {suggestedUtah(watches).map((s) => (
+                  <li key={`${s.board}:${s.slug}`} className="flex items-center justify-between gap-2 py-1">
+                    <span className="min-w-0 text-sm">
+                      {s.company}{" "}
+                      <span className="text-xs text-ink-3">
+                        · {s.where} · {JOB_BOARD_INFO[s.board].label}
+                      </span>
+                    </span>
+                    <SuggestWatchButton company={s.company} board={s.board} slug={s.slug} />
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
         </section>
       </div>
     </div>
@@ -258,7 +285,7 @@ async function Openings({ watches, keywords, locations, now }: { watches: JobWat
               <a href={p.url} target="_blank" rel="noopener noreferrer" className="group flex items-center gap-3 py-2.5">
                 <span
                   className="tint h-display flex h-10 w-10 shrink-0 items-center justify-center rounded-lg text-sm font-semibold"
-                  style={hue(p.score >= 90 ? "var(--c-green)" : p.score >= 75 ? "var(--c-blue)" : "var(--c-grey)")}
+                  style={hue(p.score >= 90 ? "var(--c-green)" : p.score >= 75 ? "var(--c-indigo)" : "var(--c-grey)")}
                   title="Match score"
                 >
                   {p.score}

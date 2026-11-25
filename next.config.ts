@@ -26,6 +26,9 @@ const nextConfig: NextConfig = {
     taint: true,
     serverActions: { bodySizeLimit: "200kb" },
   },
+  // unpdf (the resume PDF check) loads its PDF.js build with its own imports: Node resolves
+  // it from node_modules instead of the bundler rewriting it.
+  serverExternalPackages: ["unpdf"],
   // Agent instructions are versioned files (agents/*/instructions.md) read at run time.
   outputFileTracingIncludes: { "/**/*": ["./agents/**/*.md"] },
   // The page was renamed; old links and bookmarks still land in the right place.
@@ -35,6 +38,9 @@ const nextConfig: NextConfig = {
   async headers() {
     return [
       { source: "/:path*", headers: securityHeaders },
+      // The resume PDFs open inside Atlas's own viewer page (it has the Back button an installed
+      // phone app otherwise lacks). Same origin only; every other response stays unframeable.
+      { source: "/api/apply/:path*", headers: [{ key: "X-Frame-Options", value: "SAMEORIGIN" }] },
       // Personal data: never cache pages in shared caches.
       { source: "/((?!_next/static|.*\\.png$).*)", headers: [{ key: "Cache-Control", value: "private, no-store" }] },
     ];

@@ -11,12 +11,13 @@ import { addDays } from "@/lib/domain/dates";
 import { AFTER_SPECIALIST_MS, aiCap, modelWait } from "@/lib/domain/deadline";
 import type { NewInsight } from "@/lib/domain/mentor";
 import { acceptJudgment, draftProposal, sameOrder, withoutPrivate, worthProposing, type RoleProposal, type RoleProposalDraft } from "@/lib/domain/roleOutlook";
+import { payPrefs, searchGoal } from "@/lib/domain/searchProfile";
 import type { AgentRunEvent } from "@/lib/domain/types";
 import { careerPrefs } from "./career";
 import { isPaused, logRun, NO_MODEL } from "./log";
 import { tracer } from "./trace";
 
-// The Mentor's review of your target roles. It reads the Analyst's outlook (how qualified
+// The Career Mentor's review of your target roles. It reads the Analyst's outlook (how qualified
 // you are for each role, measured against your GitHub projects and resumes, with demand,
 // pay and your own results) and decides whether your order should change.
 //
@@ -38,7 +39,7 @@ export interface RolesReviewOptions {
   trigger: AgentRunEvent["trigger"];
   honorPause: boolean;
   persist: Store;
-  /** The Mentor's slot, for the pointer it leaves among its insights. */
+  /** The Career Mentor's slot, for the pointer it leaves among its insights. */
   slot?: NewInsight["slot"];
 }
 
@@ -78,9 +79,8 @@ export async function runRolesReview(ctx: Context, opts: RolesReviewOptions): Pr
     else {
       // Names of private repositories are not sent to the model.
       const shown = draftProposal(withoutPrivate(outlook, new Set(repos.filter((r) => r.isPrivate).map((r) => r.name)))) ?? draft;
-      const prefs = careerPrefs(ctx.settings);
-      const pay = prefs.minSalary > 0 ? ` paying at least $${Math.round(prefs.minSalary / 1000)}k a year` : "";
-      const goal = `A full-time engineering role${pay}, remote or in Salt Lake County.`;
+      // The same search every Career desk agent works from: level, pay, place and team.
+      const goal = searchGoal(payPrefs(ctx.settings));
       const res = await t.step(
         "Judge the order",
         () => structuredWithin(wait, RolesOut, rolesTask(goal), rolesData({ current: draft.base, rules: draft.order, mayAdd: draft.mayAdd, facts: shown.facts })),
@@ -117,7 +117,7 @@ export async function runRolesReview(ctx: Context, opts: RolesReviewOptions): Pr
         }),
     );
     if (!declined) {
-      // A pointer among the Mentor's insights, so the proposal shows on Today and Growth.
+      // A pointer among the Career Mentor's insights, so the proposal shows on Today and Growth.
       const moved = chosen.order.filter((r) => chosen.base.includes(r) && chosen.order.filter((x) => chosen.base.includes(x)).indexOf(r) < chosen.base.indexOf(r)).length;
       await persist.mentor
         .add([
@@ -128,7 +128,7 @@ export async function runRolesReview(ctx: Context, opts: RolesReviewOptions): Pr
             area: "targeting",
             title: chosen.headline.slice(0, 160),
             body: `Proposed order: ${chosen.order.join(", ")}.`.slice(0, 600),
-            action: "Open Target roles, read the reasons, and approve or dismiss the proposed order. Nothing changes until you do.",
+            action: "Open Roles and resumes (Career, Setup), read the reasons, and approve or dismiss the proposed order. Nothing changes until you do.",
             evidence: chosen.facts.slice(0, 4).map((f) => f.slice(0, 400)),
             metric: `${moved} moved, ${chosen.added.length} added`,
             writer,
@@ -138,7 +138,7 @@ export async function runRolesReview(ctx: Context, opts: RolesReviewOptions): Pr
         .catch(() => undefined);
     }
     const moved = declined ? 0 : chosen.order.filter((r) => chosen.base.includes(r) && chosen.order.filter((x) => chosen.base.includes(x)).indexOf(r) < chosen.base.indexOf(r)).length;
-    const headline = declined ? "The Mentor reviewed your role order and judged it should stay as it is." : `Proposed a new role order: ${moved} moved up, ${chosen.added.length} added. It waits for your approval.`;
+    const headline = declined ? "The Career Mentor reviewed your role order and judged it should stay as it is." : `Proposed a new role order: ${moved} moved up, ${chosen.added.length} added. It waits for your approval.`;
     await logRun(ctx, {
       runId,
       agent,

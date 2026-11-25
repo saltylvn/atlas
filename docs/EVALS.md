@@ -14,7 +14,7 @@ scores the share it gets right. Rules only: no network, no model, a few millisec
 | Calendar | Interviews and appointments vs routine events; real conflicts, none invented from edited or repeating events | 95% |
 | News | Whether two outlets' headlines are the same story | 80% |
 | Email | The right pile (reply, glance, noise) and tag (job, subscription, finance, store) | 95% |
-| Career | Posted title to one of the seven roles or skip; location; pay floor; demo-only pre-sales | 95% |
+| Career | Posted title to one of the five roles or skip; senior titles left out; the place group (Utah remote or hybrid, remote, office within the commute) and what is too far; pay floor and target; demo-only pre-sales | 95% |
 | Finance | A bill's kind, amount and date; real sales vs order mail | 95% |
 | Scout | Records every posting that is one of your roles, with pay, place and skills, including ones you would not take; judges none | 100% |
 | Analyst | Demand, trend, pay, coverage, best fit and gaps computed from fixed postings; wording with a number the report does not hold is thrown away | 100% |
@@ -42,7 +42,7 @@ Rules for the suites:
 
 The first run (13 Nov 2026) scored 210 of 225 and found ten real bugs, since fixed:
 GitHub pull-request threads tagged as job replies, login codes filed under "needs a
-reply", agentic titles matched as plain Software Engineer, "Interviewer" gigs matched as
+reply", agentic titles matched as plain Software Engineer, "Interviewer" listings matched as
 jobs, bill dates written "by 12/05" or "ends in 3 days" missed, coupons that mention
 "your next order" dropped, and a name missed when it follows a headline's first word.
 

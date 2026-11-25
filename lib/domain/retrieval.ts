@@ -46,8 +46,22 @@ export const tokenize = (text: string): string[] => words(text).map(stem);
  * `max`. They are joined with OR (any word may match; passages matching more rank
  * higher), because a question is not a list of required words.
  */
+/**
+ * Everyday words a question uses for what Atlas's records call something else (query expansion).
+ * A phrase on the left adds the words on the right to the search; the question's own words stay
+ * first. Small and literal on purpose: search by meaning (embeddings) covers the rest in production.
+ * Added after the QA review of 22 Nov 2026 (three questions keyword search missed all week).
+ */
+export const EXPANSIONS: readonly [RegExp, readonly string[]][] = [
+  [/\b(owe|owed|pay|paying|bills?)\b/i, ["due", "bill", "premium", "amount"]],
+  [/\b(catch up|reach out|check in|get in touch|haven't talked|keep in touch)\b/i, ["touch", "contact", "circle"]],
+  [/\b(shut off|cut off|disconnect(ed)?|lose (my )?(internet|service))\b/i, ["interruption", "internet", "payment", "failed"]],
+  [/\b(connection|wifi|wi-fi)\b/i, ["internet"]],
+];
+
 export function queryTerms(question: string, max = 12): string[] {
-  return [...new Set(words(question))].slice(0, max);
+  const extra = EXPANSIONS.flatMap(([re, add]) => (re.test(question) ? add : []));
+  return [...new Set([...words(question), ...extra])].slice(0, max);
 }
 
 /** "interview | acme": the only shape the search function accepts. */

@@ -98,7 +98,7 @@ const cases: EvalCase[] = [
   { name: "A run skipped because the agent was paused is not a failure", expected: "none", actual: found((w) => ({ ...w, runs: [...w.runs, ...run("news", "News for the Morning Brief", TUE, "07:49", { status: "skipped", detail: "Paused in Mission Control" })] })) },
   { name: "A run that started a minute ago is still running, not stopped", expected: "none", actual: found((w) => ({ ...w, runs: [...w.runs, ...run("scout", "Record the market", SUNDAY, "17:59", null)] })) },
   { name: "The 2-hour sync ran once on Wednesday instead of six times", expected: "sync:thin medium", actual: found((w) => { let kept = 0; return without(w, (r) => r.task === SYNC_TASK && r.at.startsWith("2026-11-18") && r.at >= at(WED, "06:00") && kept++ >= 2); }) },
-  { name: "The News Agent has been paused for ten days", expected: "paused:news low", actual: found((w) => ({ ...w, paused: [{ agent: "news", paused: true, updatedAt: at("2026-11-12", "09:00") }] })) },
+  { name: "The News bot has been paused for ten days", expected: "paused:news low", actual: found((w) => ({ ...w, paused: [{ agent: "news", paused: true, updatedAt: at("2026-11-12", "09:00") }] })) },
 
   // The AI model
   { name: "The model gave no answer 7 of 10 times", expected: "ai:fallbacks high", actual: found((w) => ({ ...mentorRuns(w), runs: [...mentorRuns(w).runs, ...Array.from({ length: 7 }, (_, i) => fellBack(addDays("2026-11-16", i % 5), "07:50")).flat(), ...Array.from({ length: 3 }, (_, i) => judged(addDays("2026-11-16", i), "13:50")).flat()] })) },
@@ -131,7 +131,7 @@ const cases: EvalCase[] = [
   { name: "One application says Role not listed", expected: "data:roles low", actual: found((w) => ({ ...w, applications: [...w.applications, { role: "Role not listed" }] })) },
   { name: "Two apply kits have waited eight days", expected: "queue:old medium", actual: found((w) => ({ ...w, approvals: [{ status: "pending", createdAt: at("2026-11-14", "09:00") }, { status: "pending", createdAt: at("2026-11-14", "09:00") }, { status: "pending", createdAt: at(SUNDAY, "09:00") }] })) },
   { name: "An apply kit decided long ago is not waiting", expected: "none", actual: found((w) => ({ ...w, approvals: [{ status: "approved", createdAt: at("2026-11-01", "09:00") }, { status: "rejected", createdAt: at("2026-11-01", "09:00") }] })) },
-  { name: "Three Mentor insights about the queue were dismissed in two weeks", expected: "mentor:dismissed:queue low", actual: found((w) => ({ ...w, insights: [TUE, WED, "2026-11-12"].map((d) => ({ area: "queue", status: "dismissed", forDate: d })) })) },
+  { name: "Three Career Mentor insights about the queue were dismissed in two weeks", expected: "mentor:dismissed:queue low", actual: found((w) => ({ ...w, insights: [TUE, WED, "2026-11-12"].map((d) => ({ area: "queue", status: "dismissed", forDate: d })) })) },
 
   // Security: tokens refused at the machine endpoints, counted from the audit trail's throttled records.
   { name: "Four requests refused in the week: a stray call, not a finding", expected: "none", actual: found((w) => ({ ...w, refused: [refusedAt("/api/capture", TUE, "08:10", 0, 2), refusedAt("/api/keepalive", "2026-11-19", "08:17", 0, 1), refusedAt("/api/cron/sync", WED, "03:12", 1)] })) },
@@ -187,7 +187,7 @@ const cases: EvalCase[] = [
   { name: "Layout: a week where every tab was used raises nothing", expected: "none", actual: found((w) => ({ ...w, usage: USED }), NEXT_SUNDAY) },
   { name: "Layout: five people due and nothing sent all week", expected: "layout:people low", actual: found((w) => ({ ...w, usage: { ...USED, people: { due: 5, sent: 0 } } }), NEXT_SUNDAY) },
   { name: "Layout: two people due is not worth a finding", expected: "none", actual: found((w) => ({ ...w, usage: { ...USED, people: { due: 2, sent: 0 } } }), NEXT_SUNDAY) },
-  { name: "Layout: six Mentor insights, none answered", expected: "layout:growth low", actual: found((w) => ({ ...w, usage: { ...USED, growth: { given: 6, answered: 0 } } }), NEXT_SUNDAY) },
+  { name: "Layout: six Career Mentor insights, none answered", expected: "layout:growth low", actual: found((w) => ({ ...w, usage: { ...USED, growth: { given: 6, answered: 0 } } }), NEXT_SUNDAY) },
   { name: "Layout: a queue that sat untouched all week", expected: "layout:career low", actual: found((w) => ({ ...w, usage: { ...USED, career: { queued: 0, decided: 0, waiting: 2 } } }), NEXT_SUNDAY) },
   { name: "Layout: an empty queue on a quiet week is fine", expected: "none", actual: found((w) => ({ ...w, usage: { ...USED, career: { queued: 0, decided: 0, waiting: 0 } } }), NEXT_SUNDAY) },
   { name: "Layout: eleven briefs saved, none marked Briefed", expected: "layout:today low", actual: found((w) => ({ ...w, usage: { ...USED, today: { saved: 11, briefed: 0 } } }), NEXT_SUNDAY) },

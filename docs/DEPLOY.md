@@ -33,12 +33,28 @@ Alternative: **Google sign-in (OAuth)**. Gmail read access is a *restricted* sco
 2. **Clients** > your Web client > Authorized redirect URIs: add `https://<your-domain>/api/connect/google/callback`.
 3. Vercel env: `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` (Sensitive), `ATLAS_SITE_URL`. Redeploy, then Connectors > Gmail > **use Google sign-in**. Start it from Safari, not the Home Screen app.
 
+## 3b. Google Calendar in Google's colors (optional, read-only)
+
+Without it, Today's calendar reads your secret iCal address (`CALENDAR_ICS_URL`) and draws events in Atlas blue. With it, events show in the colors Google Calendar shows them in.
+
+1. Google Cloud Console, the project with your Web OAuth client: **APIs & Services > Library > Google Calendar API > Enable**.
+2. Google Auth Platform > **Data access**: add `.../auth/calendar.calendarlist.readonly` and `.../auth/calendar.events.readonly` (both *sensitive*, not restricted).
+3. **Audience**: **Publish app** (In production). Unverified is fine for one person: Google shows a warning you continue past. In Testing, Google signs you out every 7 days. If Gmail uses the app password, remove `gmail.readonly` from Data access first, so nothing restricted is requested.
+4. **Clients** > your Web client > Authorized redirect URIs: `https://<your-domain>/api/connect/google/callback` (the same one Gmail sign-in uses).
+   If Google says the home page "is not registered to you": [Search Console](https://search.google.com/search-console) > Add property > **URL prefix** `https://<your-domain>` > **HTML tag**. Put only the `content` value in Vercel as `GOOGLE_SITE_VERIFICATION`, redeploy, then press **Verify**.
+5. Vercel env (if not set already): `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` (Sensitive), `ATLAS_SITE_URL`, `ATLAS_VAULT_KEY`. Redeploy.
+6. Atlas > Connectors > Google Calendar > **Connect Google Calendar**, tick both calendar boxes. Start it from Safari, not the Home Screen app.
+
 ## 4. Morning notification and Siri capture
 
 1. `npx web-push generate-vapid-keys`, then set `VAPID_PUBLIC_KEY` and `VAPID_PRIVATE_KEY` (Sensitive) in Vercel.
 2. `CRON_SECRET` (`openssl rand -hex 32`, Sensitive). Vercel calls `/api/cron/morning` at 14:00 UTC Monday-Saturday and `/api/cron/afternoon` at 19:00 UTC Monday-Friday (`vercel.json`). Hobby runs each within its hour, so the Morning Brief is ready before 9:00 AM and the 2:00 PM Brief before 2:00 PM Mountain time, summer or winter. Each saved brief pings your phone.
 3. `ATLAS_CAPTURE_TOKEN` (`openssl rand -hex 32`, Sensitive) for the Siri Shortcut. Connectors shows the steps.
 4. Redeploy. On the iPhone, open Atlas **from the Home Screen** > Connectors > **Turn on for this device** > **Send a test**.
+
+## 4b. The 15-minute watch (answers to your applications)
+
+Optional, and off until you schedule it. It pushes a company's answer to your phone within 15 minutes, 7 AM to 9 PM, every day. Set `ATLAS_WATCH_SECRET` in Vercel (its own value, not `CRON_SECRET`), then run the SQL in [WATCH.md](WATCH.md) once in Supabase.
 
 ## 5. Keep Supabase awake
 

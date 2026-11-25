@@ -58,10 +58,11 @@ describe("Urgent between briefs", () => {
 
   it("pings only for a new interview invite or payment alert", () => {
     const items = [
-      mail({ id: "1", fromName: "Sam Ortiz", fromEmail: "sam@halcyon.ai", subject: "Interview availability for the AI Engineer role" }),
-      mail({ id: "2", fromName: "Old Co", fromEmail: "hr@old.co", subject: "Interview next steps", receivedAt: "2026-11-16T13:00:00Z" }),
+      // Each invite's text was read and says so: the subject is not what makes it one.
+      mail({ id: "1", fromName: "Sam Ortiz", fromEmail: "sam@halcyon.ai", subject: "The AI Engineer role at Halcyon", textVerdict: "interview" }),
+      mail({ id: "2", fromName: "Old Co", fromEmail: "hr@old.co", subject: "Your application at Old Co", receivedAt: "2026-11-16T13:00:00Z", textVerdict: "interview" }),
       mail({ id: "3", fromName: "Costco", fromEmail: "deals@costco.com", subject: "Black Friday deals" }),
-      mail({ id: "4", fromName: "Done Co", fromEmail: "x@done.co", subject: "Interview time", done: true }),
+      mail({ id: "4", fromName: "Done Co", fromEmail: "x@done.co", subject: "Your application at Done Co", done: true, textVerdict: "interview" }),
     ];
     const alerts = [
       { name: "Lakeshore Financial", subject: "Payment failed: action required", receivedAt: "2026-11-16T15:45:00Z" },
@@ -74,8 +75,21 @@ describe("Urgent between briefs", () => {
     expect(urgentSince([mail({ subject: "Newsletter" })], prefs, SINCE, [])).toEqual([]);
   });
 
+  it("a subject alone never pings as an interview: unread, it waits for its text", () => {
+    const from = { fromName: "Sam Ortiz", fromEmail: "sam@halcyon.ai" };
+    const subject = "Interview availability for the AI Engineer role";
+    // Unread: the tracker holds it off the timelines, and the phone does not call it an invite either.
+    for (const textVerdict of [undefined, null] as const) expect(urgentSince([mail({ ...from, subject, textVerdict })], prefs, SINCE, []), String(textVerdict)).toEqual([]);
+    // Read, and the text says so: it pings (here, because it is on no timeline).
+    expect(urgentSince([mail({ ...from, subject, textVerdict: "interview" })], prefs, SINCE, []).map((u) => u.title)).toEqual(["Interview invite: Sam Ortiz"]);
+    // Read, and no rule found an invitation in the text: not an interview, so no ping from here.
+    expect(urgentSince([mail({ ...from, subject, textVerdict: "none" })], prefs, SINCE, [])).toEqual([]);
+    // "Next steps" names no interview, read or not.
+    for (const textVerdict of [null, "none"] as const) expect(urgentSince([mail({ ...from, subject: "Next steps for your application", textVerdict })], prefs, SINCE, []), String(textVerdict)).toEqual([]);
+  });
+
   it("clips long text", () => {
-    const u = urgentSince([mail({ fromName: "N".repeat(200), subject: `Interview ${"x".repeat(400)}` })], prefs, SINCE, []);
+    const u = urgentSince([mail({ fromName: "N".repeat(200), subject: `Interview ${"x".repeat(400)}`, textVerdict: "interview" })], prefs, SINCE, []);
     expect(u[0]!.title.length).toBeLessThanOrEqual(80);
     expect(u[0]!.body.length).toBeLessThanOrEqual(160);
   });
@@ -104,17 +118,21 @@ describe("2-hour sync run", () => {
     expect(sync.costUsd).toBe(0);
     const steps = sync.trace!.map((s) => s.name);
     // Notion and the inbox come first; the rest report in parallel, then the urgent check.
-    expect(steps.slice(0, 2)).toEqual(["Sync role order and resumes from Notion", "Ask the Email Agent"]);
-    expect(new Set(steps.slice(2, 7))).toEqual(new Set(["Ask the Calendar Agent", "Ask the News Agent", "Ask the Applications Agent to log applications and queue follow-ups", "Ask the Finance Agent", "Ask the Scout"]));
+    expect(steps.slice(0, 2)).toEqual(["Sync resumes from Notion", "Ask the Email bot"]);
+    expect(new Set(steps.slice(2, 7))).toEqual(new Set(["Ask the Calendar bot", "Ask the News bot", "Ask the Applications bot to log applications and queue follow-ups", "Ask the Finance bot", "Ask the Scout"]));
     expect(steps[7]).toBe("Check for anything urgent");
     // Each specialist logged its own run too.
     expect(new Set(runs.filter((r) => r.status !== "started").map((r) => r.agent))).toEqual(new Set(["chief-of-staff", "email", "calendar", "news", "finance", "career", "scout"]));
-    // The Analyst and the Mentor run with the briefs, never in a sync.
+    // The Analyst and the Career Mentor run with the briefs, never in a sync.
     expect(runs.some((r) => r.agent === "analyst" || r.agent === "mentor")).toBe(false);
     // The Applications Agent's part is its own traced run, so the live map can show it working.
-    const career = runs.find((r) => r.agent === "career" && r.status === "succeeded")!;
+    const career = runs.find((r) => r.agent === "career" && r.status === "succeeded" && r.task === CAREER_SYNC_TASK)!;
     expect(career.task).toBe(CAREER_SYNC_TASK);
-    expect(career.trace!.map((s) => s.name)).toEqual(["Read the text of new job emails (read-only, rules only)", "Track applications from job emails", "Look up missing roles in the application emails (read-only, rules only)", "Queue follow-ups for quiet applications"]);
+    expect(career.trace!.map((s) => s.name)).toEqual(["Read the text of new job emails (read-only, rules only)", "Track applications from job emails", "Tell your phone who wrote back", "Look up missing roles in the application emails (read-only, rules only)", "Queue follow-ups for quiet applications", "Queue jobs you gave a thumbs-up that are in no queue", "Find approved jobs whose posting has not been read", "Find jobs in the Apply Queue with no research yet", "Prepare for a new interview"]);
+    // With no Firecrawl key nothing is read, and the step says so instead of failing the sync.
+    expect(career.trace!.at(-2)!.note).toMatch(/none waiting|Firecrawl is not set up yet/);
+    // A new interview gets its prep (Interview Prep agent, Step 4), one a run.
+    expect(career.trace!.at(-1)!.note).toMatch(/^prepared |no new interviews/);
     expect(runs.some((r) => r.agent === "career" && r.status === "started" && r.runId === career.runId)).toBe(true);
     // It refreshes data only.
     expect((await store.briefs.search({ limit: 50 })).length).toBe(briefsBefore);

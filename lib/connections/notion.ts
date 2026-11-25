@@ -4,17 +4,17 @@ import { explainNotion, notionRolesPatch } from "@/lib/domain/notionRoles";
 import type { NotionSync, Settings } from "@/lib/domain/types";
 import { diagnoseNotion, identityLine, NOTION_HELP, NotionError, notionConfigured, notionIdentity, notionWorkspace, readNotionRoles } from "@/lib/integrations/notion";
 
-// Syncing from Notion. Notion's Resumes database decides the order of your target roles
-// and supplies each role's resume; Atlas copies both into Settings, where the Career
-// Agent, Target roles and the Approval Queue already read them. So nothing waits on
-// Notion at page load, and a Notion outage leaves the last good copy in place.
-// This sync only reads. Atlas writes to Notion in two other places, both named in
-// lib/integrations/notion.ts: the resume sync's own block, and a role order you approved.
+// Syncing from Notion. Notion's Resumes database supplies each role's resume; Atlas copies
+// the links into Settings, where the Career Agent and the apply queues read them. Atlas,
+// not Notion, decides which roles you target and their order (Target Roles page). Nothing
+// waits on Notion at page load, and a Notion outage leaves the last good copy in place.
+// This sync only reads. Atlas writes to Notion in one other place, named in
+// lib/integrations/notion.ts: the resume sync's own block.
 
 export interface NotionSyncResult {
   settings: Settings;
   sync: NotionSync;
-  /** True when the role order or a resume link changed. */
+  /** True when a resume link changed. */
   changed: boolean;
 }
 
@@ -36,14 +36,14 @@ export async function syncNotion(store: Store, settings: Settings, now: Date): P
     const [workspace, read] = await Promise.all([notionWorkspace(), readNotionRoles(settings.notionResumesId)]);
     const patch = notionRolesPatch(read.roles, settings);
     if (!patch) {
-      const sync: NotionSync = { at, ok: false, workspace, roles: 0, resumes: 0, message: "The Resumes database has no roles. Add a row per role with a Priority number." };
+      const sync: NotionSync = { at, ok: false, workspace, roles: 0, resumes: 0, message: "The Resumes database has no rows. Add a row per role with its resume." };
       return { settings: await store.settings.update({ notion: sync, notionResumesId: read.dataSourceId }), sync, changed: false };
     }
     // The Master Resume counts as a resume, never as a role.
     const master = read.master || settings.careerMasterResume || "";
-    const sync: NotionSync = { at, ok: true, workspace, roles: patch.careerRoles.length, resumes: patch.resumes + (read.master ? 1 : 0), master: Boolean(read.master), message: "" };
+    const sync: NotionSync = { at, ok: true, workspace, roles: patch.roles, resumes: patch.resumes + (read.master ? 1 : 0), master: Boolean(read.master), message: "" };
     const changed = patch.changed || master !== (settings.careerMasterResume ?? "");
-    return { settings: await store.settings.update({ careerRoles: patch.careerRoles, careerResumes: patch.careerResumes, careerMasterResume: master, notion: sync, notionResumesId: read.dataSourceId }), sync, changed };
+    return { settings: await store.settings.update({ careerResumes: patch.careerResumes, careerMasterResume: master, notion: sync, notionResumesId: read.dataSourceId }), sync, changed };
   } catch (err) {
     let message = err instanceof NotionError ? err.message : NOTION_HELP.unavailable;
     let sees: string[] | undefined;

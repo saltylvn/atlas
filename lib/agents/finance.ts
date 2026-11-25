@@ -17,7 +17,7 @@ import { NO_TRACE, tracer, type Tracer } from "./trace";
 /** The agent's work without logging. The Renewals page and Today's preview use this directly. */
 export async function financeAgentWork(ctx: Context, t: Tracer = NO_TRACE): Promise<FinanceAgentResult> {
   const [items, renewals, connections] = await t.step(
-    "Load the inbox the Email Agent synced, and your Renewals list",
+    "Load the inbox the Email bot synced, and your Renewals list",
     () => Promise.all([ctx.store.inbox.list(), ctx.store.renewals.list(), ctx.store.connections.list().catch(() => [])]),
     ([i, r]) => `${i.length} emails, ${r.length} renewals`,
   );

@@ -282,8 +282,8 @@ describe("Scoring retrieval on real vectors", () => {
       docs,
       [
         { question: "When is the Northwind interview?", expected: "b", vector: [0.1, 0.9, 0] },
-        // No word in common with the passage: only the vector can find it.
-        { question: "What do I owe this month?", expected: "a", vector: [0.95, 0.05, 0] },
+        // No word in common with the passage, and none added by query expansion: only the vector can find it.
+        { question: "How much money leaves my account soon?", expected: "a", vector: [0.95, 0.05, 0] },
       ],
       [[0.4, 0.4, 0.4]],
     );

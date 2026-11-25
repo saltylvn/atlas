@@ -1,6 +1,7 @@
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 import { SESSION_COOKIE_OPTIONS } from "./cookies";
+import { CONSENT_COOKIE, isAuthorizationId } from "@/lib/mcp/auth";
 import { decide, isPublicPath, type Claims } from "./gate";
 
 /**
@@ -51,6 +52,9 @@ export async function gateRequest(request: NextRequest, extraHeaders: Record<str
   }
 
   const decision = decide(claims, process.env.ATLAS_OWNER_EMAIL, true, path);
+  // Connecting Claude: remember which consent request to come back to after sign-in and MFA.
+  const consentId = path === "/oauth/consent" ? request.nextUrl.searchParams.get("authorization_id") : null;
+  if ((decision === "login" || decision === "mfa") && isAuthorizationId(consentId)) response.cookies.set(CONSENT_COOKIE, consentId, { httpOnly: true, secure: true, sameSite: "lax", path: "/", maxAge: 15 * 60 });
   switch (decision) {
     case "allow":
       return response;

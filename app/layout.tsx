@@ -9,6 +9,10 @@ const inter = localFont({ src: "./fonts/inter-latin.woff2", weight: "100 900", v
 const manrope = localFont({ src: "./fonts/manrope-latin.woff2", weight: "500 700", variable: "--font-manrope", display: "swap" });
 const sourceCode = localFont({ src: "./fonts/source-code-pro-latin.woff2", weight: "400 500", variable: "--font-source-code", display: "swap" });
 
+// Google Search Console's ownership tag for this site (Google's OAuth consent screen needs the
+// home page to be yours). Public by design; only a plain token is accepted. Set it in Vercel and redeploy.
+const googleVerification = /^[A-Za-z0-9_-]{20,100}$/.test(process.env.GOOGLE_SITE_VERIFICATION ?? "") ? process.env.GOOGLE_SITE_VERIFICATION : undefined;
+
 export const metadata: Metadata = {
   title: { default: "Atlas", template: "%s · Atlas" },
   description: "Your personal chief of staff: the brief, the plan, your people, your job search.",
@@ -16,6 +20,7 @@ export const metadata: Metadata = {
   appleWebApp: { capable: true, title: "Atlas", statusBarStyle: "default" },
   formatDetection: { telephone: false },
   robots: { index: false, follow: false },
+  ...(googleVerification ? { verification: { google: googleVerification } } : {}),
 };
 
 export const viewport: Viewport = {

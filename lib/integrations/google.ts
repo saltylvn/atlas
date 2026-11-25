@@ -8,7 +8,6 @@ import { safeFetchJson } from "@/lib/security/safeFetch";
 // (format=metadata): message bodies and attachments are never downloaded.
 
 export const GMAIL_SCOPE = "https://www.googleapis.com/auth/gmail.readonly";
-const SCOPES = ["openid", "email", GMAIL_SCOPE].join(" ");
 const HEADERS = ["From", "To", "Cc", "Subject", "List-Unsubscribe", "Precedence", "Auto-Submitted"];
 
 export interface GoogleClient {
@@ -22,13 +21,14 @@ export function pkcePair(): { verifier: string; challenge: string } {
   return { verifier, challenge: createHash("sha256").update(verifier).digest("base64url") };
 }
 
-export function authorizeUrl(client: GoogleClient, state: string, challenge: string, loginHint?: string): string {
+/** `scopes`: what to ask for on top of who you are (openid, email). Gmail by default. */
+export function authorizeUrl(client: GoogleClient, state: string, challenge: string, loginHint?: string, scopes: readonly string[] = [GMAIL_SCOPE]): string {
   const u = new URL("https://accounts.google.com/o/oauth2/v2/auth");
   u.search = new URLSearchParams({
     client_id: client.clientId,
     redirect_uri: client.redirectUri,
     response_type: "code",
-    scope: SCOPES,
+    scope: ["openid", "email", ...scopes].join(" "),
     access_type: "offline",
     // Always show consent so Google returns a refresh token.
     prompt: "consent",

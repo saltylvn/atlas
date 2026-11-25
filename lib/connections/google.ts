@@ -66,7 +66,7 @@ export function googleClient(): GoogleClient {
   };
 }
 
-async function saveConnection(provider: Provider, input: { email: string; scopes: string; secret: string }): Promise<void> {
+export async function saveConnection(provider: Provider, input: { email: string; scopes: string; secret: string }): Promise<void> {
   const id = owner();
   const { error } = await createServiceClient()
     .from("connections")
@@ -94,7 +94,7 @@ export function saveAppPasswordConnection(input: { email: string; appPassword: s
   return saveConnection("gmail_imap", { email: input.email, scopes: "imap:read-only", secret: input.appPassword });
 }
 
-async function loadConnection(provider: Provider): Promise<{ email: string; secret: string } | null> {
+export async function loadConnection(provider: Provider): Promise<{ email: string; secret: string } | null> {
   const id = owner();
   const { data, error } = await createServiceClient()
     .from("connections")
@@ -107,7 +107,7 @@ async function loadConnection(provider: Provider): Promise<{ email: string; secr
   return { email: String(data.account_email), secret: open(vaultKey(), String(data.secret), sealContext(provider, id)) };
 }
 
-async function markSync(provider: Provider, ok: boolean, message = ""): Promise<void> {
+export async function markSync(provider: Provider, ok: boolean, message = ""): Promise<void> {
   const now = new Date().toISOString();
   await createServiceClient()
     .from("connections")
@@ -128,7 +128,8 @@ export async function disconnectGmail(): Promise<void> {
 }
 
 export type SyncResult =
-  | { status: "ok"; fetched: number; needsReply: number }
+  /** `newestAt`: when the newest inbox email fetched arrived, or null when there was none. */
+  | { status: "ok"; fetched: number; needsReply: number; newestAt: string | null }
   | { status: "not_connected" }
   | { status: "error"; message: string };
 
@@ -187,7 +188,8 @@ export async function syncGmail(store: Store): Promise<SyncResult> {
       });
     await store.inbox.upsert(items);
     await markSync(got.provider, true);
-    return { status: "ok", fetched: items.length, needsReply: items.filter((i) => i.category === "reply").length };
+    const newestAt = items.reduce<string | null>((newest, i) => (i.receivedAt > (newest ?? "") ? i.receivedAt : newest), null);
+    return { status: "ok", fetched: items.length, needsReply: items.filter((i) => i.category === "reply").length, newestAt };
   } catch {
     const message = "Gmail sync failed. It will retry on the next run.";
     await markSync(got.provider, false, message);

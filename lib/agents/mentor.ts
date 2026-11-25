@@ -12,13 +12,19 @@ import { addDays, longDate } from "@/lib/domain/dates";
 import { AFTER_SPECIALIST_MS, aiCap, modelWait } from "@/lib/domain/deadline";
 import { scrub, scrubPhones } from "@/lib/domain/knowledge";
 import { resumeName } from "@/lib/domain/jobFit";
-import { acceptInsights, eligible, mentorHeadline, MUST_SAY, observe, rulesInsights, WORTH_SAYING, type MentorInput, type MentorInsight, type MentorSlot, type NewInsight } from "@/lib/domain/mentor";
+import { roleFitBrief } from "@/lib/domain/roleFit";
+import { acceptInsights, eligible, mentorHeadline, recentForModel, MUST_SAY, observe, rulesInsights, WORTH_SAYING, type MentorInput, type MentorInsight, type MentorSlot, type NewInsight } from "@/lib/domain/mentor";
+import { payPrefs, searchGoal } from "@/lib/domain/searchProfile";
 import { extractSkills } from "@/lib/domain/skills";
 import type { AgentRunEvent, Settings } from "@/lib/domain/types";
 import { careerPrefs } from "./career";
 import { isPaused, logRun, NO_MODEL } from "./log";
 import { runRolesReview } from "./mentorRoles";
+import { activeLessons } from "@/lib/domain/agentState";
+import { gradeInsight, lessonsText, proofPlan, REWRITE_SLOTS } from "@/lib/domain/gapPlan";
+import { maxYearsOf } from "@/lib/domain/levelPolicy";
 import { tracer } from "./trace";
+import { inYourLists } from "@/lib/domain/people";
 
 // The Mentor: stage 4 of the Career desk. Three times a day it gathers what the other
 // agents and you have produced, lets the rules in lib/domain/mentor.ts turn that into
@@ -33,9 +39,9 @@ const MODEL_WAIT_MS = 24_000;
 
 export const MENTOR_TASK: Record<MentorSlot, string> = { morning: "Mentor: morning priority", midday: "Mentor: midday check", evening: "Mentor: evening review" };
 
-/** Planned applications a day. The Mentor measures you against these. */
-export function dailyPlan(s: Settings): { fullTime: number; gigs: number } {
-  return { fullTime: s.careerDailyFullTime ?? 3, gigs: s.careerDailyGigs ?? 1 };
+/** Planned applications a day. The Career Mentor measures you against it. */
+export function dailyPlan(s: Settings): number {
+  return s.careerDailyFullTime ?? 3;
 }
 
 export interface MentorResult {
@@ -53,16 +59,22 @@ export interface MentorOptions {
   refresh?: boolean;
 }
 
-/** Everything the Mentor looks at. Each read fails on its own: a missing source narrows the review, it does not stop it. */
+/** Everything the Career Mentor looks at. Each read fails on its own: a missing source narrows the review, it does not stop it. */
 export async function mentorInput(ctx: Context, slot: MentorSlot): Promise<MentorInput> {
   const { store, settings, today } = ctx;
-  const [applications, approvals, matches, market, resumeRows, prior] = await Promise.all([
+  const [applications, approvals, matches, market, resumeRows, prior, perfect, contacts] = await Promise.all([
     store.applications.list().catch(() => []),
     store.approvals.list().catch(() => []),
     store.jobMatches.since(addDays(today, -14)).catch(() => []),
     store.market.latestReport().catch(() => null),
     store.knowledge.bySource("resume", 200).catch(() => null),
     store.mentor.since(addDays(today, -14)).catch(() => []),
+    // The jobs you marked Perfect fit, however long ago, and the people a referral could come from.
+    store.jobMatches.perfect().catch(() => []),
+    store.contacts
+      .list()
+      .then((all) => all.filter(inYourLists))
+      .catch(() => []),
   ]);
   const saved = settings.careerAnswers ?? {};
   return {
@@ -81,11 +93,22 @@ export async function mentorInput(ctx: Context, slot: MentorSlot): Promise<Mento
     linkedin: settings.linkedinProfile ?? "",
     plan: dailyPlan(settings),
     prior,
+    perfect,
+    contacts,
+    proof: proofPlan(settings.careerProof),
+    maxYears: maxYearsOf(settings),
   };
 }
 
-const goalOf = (ctx: Context, input: MentorInput) =>
-  `A full-time engineering role${(ctx.settings.careerMinSalary ?? 0) > 0 ? ` paying at least $${Math.round((ctx.settings.careerMinSalary ?? 0) / 1000)}k a year` : ""}. Target roles in priority order: ${input.roles.slice(0, 5).join(", ")}. Side goal: freelance gigs to build a portfolio, about one application in five. Plan: ${input.plan.fullTime} full-time applications a day.`;
+/** The lessons your results taught (agent memory, Step 3), for the model to read. Empty when none or unreadable. */
+async function lessonsMaterial(ctx: Context): Promise<{ name: string; text: string }[]> {
+  const all = await ctx.store.agentMemory.list("mentor").catch(() => []);
+  const live = activeLessons(all, "mentor", ctx.today);
+  return live.length ? [{ name: "Lessons from your results", text: lessonsText(live) }] : [];
+}
+
+// The same search every Career desk agent works from (lib/domain/searchProfile.ts): level, pay, place and team.
+const goalOf = (ctx: Context, input: MentorInput) => `${searchGoal(payPrefs(ctx.settings))} Target roles in priority order: ${input.roles.slice(0, 5).join(", ")}. Plan: ${input.plan} applications a day.`;
 
 export async function runMentor(ctx: Context, slot: MentorSlot, opts: MentorOptions): Promise<MentorResult | AgentMissing> {
   const agent = "mentor" as const;
@@ -114,8 +137,15 @@ export async function runMentor(ctx: Context, slot: MentorSlot, opts: MentorOpti
       if (!gate.allowed) t.note("Judge what matters most", `rules ranking: ${gate.why}`);
       else {
         // The evening review may read your own words for a wording critique. Contact details are stripped first.
-        const materials = slot === "evening" && input.linkedin ? [{ name: "LinkedIn profile text", text: scrubPhones(scrub(input.linkedin)).slice(0, 1500) }] : [];
-        const recent = input.prior.slice(0, 6).map((i) => ({ date: i.forDate, slot: i.slot, title: i.title, status: i.status }));
+        // Every review also reads the role fit study, so advice about roles and gaps matches it.
+        const materials = [
+          { name: "Role fit study", text: roleFitBrief() },
+          ...(slot === "evening" && input.linkedin ? [{ name: "LinkedIn profile text", text: scrubPhones(scrub(input.linkedin)).slice(0, 1500) }] : []),
+          ...(await lessonsMaterial(ctx)),
+        ];
+        // What you were told lately, and what you did about it, in your words (Action Taken notes,
+        // up to 30 days back): the model builds the next step on those instead of repeating them.
+        const recent = recentForModel(input.prior, ctx.today);
         const res = await t.step(
           "Judge what matters most",
           () => structuredWithin(wait, MentorOut, mentorTask(slot, goalOf(ctx, input), `${longDate(ctx.today)} ${ctx.today.slice(0, 4)}`), mentorData(worth.slice(0, 10), recent, materials)),
@@ -123,9 +153,32 @@ export async function runMentor(ctx: Context, slot: MentorSlot, opts: MentorOpti
         );
         usage = res.usage ?? null;
         if (res.ok) {
-          const accepted = acceptInsights(input, worth, res.value.insights, materials.map((m) => m.text));
+          let accepted = acceptInsights(input, worth, res.value.insights, materials.map((m) => m.text));
           const dropped = res.value.insights.length - accepted.length;
           if (dropped > 0) t.note("Check each insight against its evidence", `${dropped} dropped: it cited something it was not shown, or a number that is not in its evidence`, false);
+          // Draft -> critique -> refine (Step 3): the rules grade each piece of advice; advice below
+          // the bar gets one rewrite with the notes, in two slots a day. A rewrite is kept only where it passes.
+          const done = [...recent.flatMap((r) => (r.youDid ? [r.youDid] : [])), ...input.prior.filter((p) => p.status === "done").map((p) => p.action)];
+          const weak = accepted.map((i) => ({ i, g: gradeInsight(i, done) })).filter((x) => !x.g.pass);
+          t.note("Grade the advice", weak.length ? `${weak.length} of ${accepted.length} below the bar: ${[...new Set(weak.flatMap((w) => w.g.notes))].join(" ").slice(0, 200)}` : `${accepted.length} of ${accepted.length} pass`, weak.length === 0);
+          if (weak.length && REWRITE_SLOTS.has(slot)) {
+            const again = modelWait(aiCap(ctx, MODEL_WAIT_MS), ctx.deadline, Date.now(), AFTER_SPECIALIST_MS);
+            const gate2 = await takeAiCallWithin(ctx.store, ctx.settings, `mentor-rewrite:${slot}`, again);
+            if (!gate2.allowed) t.note("Rewrite the advice below the bar", `kept as drafted: ${gate2.why}`);
+            else {
+              const critique = weak.map((w) => `"${w.i.title}": ${w.g.notes.join(" ")}`).join("\n");
+              const res2 = await t.step(
+                "Rewrite the advice below the bar",
+                () => structuredWithin(again, MentorOut, `${mentorTask(slot, goalOf(ctx, input), `${longDate(ctx.today)} ${ctx.today.slice(0, 4)}`)}\nA reviewer sent back this draft. Fix exactly these and keep what already passed:\n${critique}`, mentorData(worth.slice(0, 10), recent, materials)),
+                (r) => (r.ok ? `${aiName()} rewrote ${r.value.insights.length}` : `kept as drafted (${whyNoAnswer(r)})`),
+              );
+              if (res2.ok) {
+                const redo = acceptInsights(input, worth, res2.value.insights, materials.map((m) => m.text)).filter((i) => gradeInsight(i, done).pass);
+                accepted = accepted.map((i) => (gradeInsight(i, done).pass ? i : (redo.find((r) => r.key === i.key) ?? i)));
+                t.note("Grade the rewrite", `${accepted.filter((i) => gradeInsight(i, done).pass).length} of ${accepted.length} pass now`);
+              }
+            }
+          }
           // The model chose silence: respected, unless something serious is on the table.
           if (accepted.length > 0) insights = accepted;
           else if (res.value.insights.length === 0) insights = rulesInsights(input, pool.filter((o) => o.weight >= MUST_SAY));

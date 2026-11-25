@@ -1,8 +1,8 @@
 import "server-only";
-import { masterResumeFromNotion, rolesFromNotion, visibleItems, type NotionDiagnosis, type NotionOutcome, type NotionRole, blocksToText, nestedBlockIds, resumePagesFromNotion, resumeSourcesFromNotion, roleRowsFromNotion, type NotionRoleRows } from "@/lib/domain/notionRoles";
+import { masterResumeFromNotion, rolesFromNotion, visibleItems, type NotionDiagnosis, type NotionOutcome, type NotionRole, blocksToText, nestedBlockIds, resumePagesFromNotion, resumeSourcesFromNotion, type ResumeFile } from "@/lib/domain/notionRoles";
 import { fingerprint, isMirrorLabel, parseMirrorLabel, withoutMirrorLabel, type FigmaRef, type MirrorState } from "@/lib/domain/resumeSync";
 import { env } from "@/lib/env";
-import { HttpError, safeFetchJson } from "@/lib/security/safeFetch";
+import { HttpError, safeFetchBytes, safeFetchJson } from "@/lib/security/safeFetch";
 
 // Notion. Atlas reads one thing: the Resumes database in Atlas HQ (your target roles in
 // priority order, with each role's resume). The token is an internal Notion integration
@@ -14,7 +14,7 @@ import { HttpError, safeFetchJson } from "@/lib/security/safeFetch";
 //   1. The resume sync keeps one block on each resume row's page, a callout that mirrors
 //      the resume's text from Figma (lib/domain/resumeSync.ts). Atlas appends that block
 //      and deletes its own older copy.
-//   2. When you approve the Mentor's proposed role order (and only then), Atlas sets the
+//   2. When you approve the Career Mentor's proposed role order (and only then), Atlas sets the
 //      Priority number on the role rows, and adds a row for a role you approved adding
 //      (lib/domain/roleOutlook.ts, app/actions/roles.ts).
 // It never edits any other property, block or page, and never deletes a row. With "Read
@@ -242,6 +242,8 @@ export interface ResumeSource {
   pageId: string;
   /** The Figma frame linked in the row's Notes, or null. */
   figma: FigmaRef | null;
+  /** The PDF in the row's Resume file column, or null. */
+  file: ResumeFile | null;
 }
 
 /** Each resume row with its page and its Figma frame. Read-only. */
@@ -249,7 +251,30 @@ export async function readResumeSources(knownId?: string): Promise<ResumeSource[
   const fixed = env().NOTION_RESUMES_DATA_SOURCE_ID;
   const id = fixed || (knownId && ID.test(knownId) ? knownId : "") || (await searchResumesDataSourceId());
   const rows = (await call<{ results?: unknown }>(`/data_sources/${encodeURIComponent(id)}/query`, { page_size: 50 }))?.results;
-  return resumeSourcesFromNotion(rows).map((r) => ({ role: r.name, pageId: r.pageId, figma: r.figma }));
+  return resumeSourcesFromNotion(rows).map((r) => ({ role: r.name, pageId: r.pageId, figma: r.figma, file: r.file }));
+}
+
+/** Where Notion keeps uploaded files. On the allowlist; a link to any other host is refused. */
+export const NOTION_FILE_HOST = "prod-files-secure.s3.us-west-2.amazonaws.com";
+const MAX_RESUME_BYTES = 5 * 1024 * 1024;
+
+/**
+ * The resume PDF from a row's Resume file column. Notion's link is signed and short-lived, so
+ * it carries no token of ours and is read fresh each time. Checked to be a PDF. Read-only.
+ */
+export async function downloadResumeFile(file: ResumeFile): Promise<Uint8Array> {
+  let host = "";
+  try {
+    host = new URL(file.url).hostname;
+  } catch {
+    host = "";
+  }
+  if (host !== NOTION_FILE_HOST) throw new NotionError("not_found");
+  const bytes = await safeFetchBytes(file.url, { accept: "application/pdf", timeoutMs: 30_000, maxBytes: MAX_RESUME_BYTES, revalidate: 0 }).catch(() => {
+    throw new NotionError("unavailable");
+  });
+  if (bytes.length < 100 || Buffer.from(bytes.subarray(0, 5)).toString("latin1") !== "%PDF-") throw new NotionError("bad_request");
+  return bytes;
 }
 
 export interface PageMirror {
@@ -295,42 +320,3 @@ export async function writePageMirror(pageId: string, block: Record<string, unkn
 
 /** What to tell the owner when Notion refuses the sync's write. */
 export const NOTION_WRITE_HELP = "Notion refused the write. In the Atlas connection's settings, under Capabilities, tick Insert content and Update content, then run the sync again.";
-
-// ---------------------------------------------------------------------------
-// The approved role order: the second and last thing Atlas writes.
-
-export interface RoleRowsRead extends NotionRoleRows {
-  dataSourceId: string;
-}
-
-/** The Resumes rows with their priorities, read fresh, for writing an approved order. Read-only. */
-export async function readRoleRows(knownId?: string): Promise<RoleRowsRead> {
-  const fixed = env().NOTION_RESUMES_DATA_SOURCE_ID;
-  const id = fixed || (knownId && ID.test(knownId) ? knownId : "") || (await searchResumesDataSourceId());
-  const rows = (await call<{ results?: unknown }>(`/data_sources/${encodeURIComponent(id)}/query`, { page_size: 50 }))?.results;
-  const parsed = roleRowsFromNotion(rows);
-  if (!parsed) throw new NotionError("bad_request");
-  return { ...parsed, dataSourceId: id };
-}
-
-/**
- * Sets one row's Priority number. Called only from the approval of a role proposal, with
- * a page id that readRoleRows returned. Nothing else on the row is touched.
- */
-export async function writeRolePriority(pageId: string, priorityProp: string, priority: number): Promise<void> {
-  if (!BLOCK_ID.test(pageId) || !priorityProp || !Number.isInteger(priority) || priority < 1 || priority > 99) throw new NotionError("bad_request");
-  await call(`/pages/${encodeURIComponent(pageId)}`, { properties: { [priorityProp]: { number: priority } } }, "PATCH");
-}
-
-/**
- * Adds a row for a role you approved adding: its name and its Priority, nothing else. The
- * row has no resume yet; the Target roles page says so.
- */
-export async function createRoleRow(rows: Pick<RoleRowsRead, "dataSourceId" | "titleProp" | "priorityProp">, name: string, priority: number): Promise<void> {
-  const clean = name.replace(/\s+/g, " ").trim().slice(0, 80);
-  if (!ID.test(rows.dataSourceId) || !clean || !Number.isInteger(priority) || priority < 1 || priority > 99) throw new NotionError("bad_request");
-  await call("/pages", {
-    parent: { type: "data_source_id", data_source_id: rows.dataSourceId },
-    properties: { [rows.titleProp]: { title: [{ type: "text", text: { content: clean } }] }, [rows.priorityProp]: { number: priority } },
-  });
-}

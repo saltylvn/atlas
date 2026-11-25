@@ -1,20 +1,84 @@
 {
   "manifest_version": 3,
   "name": "Atlas Autofill",
-  "version": "1.0.0",
-  "description": "Fills job application forms from your Atlas answer bank when you press Fill. You review and submit.",
-  "icons": { "48": "icons/icon-48.png", "96": "icons/icon-96.png", "128": "icons/icon-128.png", "512": "icons/icon-512.png" },
+  "version": "2.0.0",
+  "description": "Atlas in your toolbar: reads a job application form, proposes answers from your Atlas answer bank and Gemini, and fills what you approve. You submit.",
+  "icons": {
+    "48": "icons/icon-48.png",
+    "96": "icons/icon-96.png",
+    "128": "icons/icon-128.png",
+    "512": "icons/icon-512.png"
+  },
   "action": {
     "default_title": "Fill with Atlas",
     "default_popup": "popup.html",
-    "default_icon": { "16": "icons/icon-16.png", "32": "icons/icon-32.png" }
+    "default_icon": {
+      "16": "icons/icon-16.png",
+      "32": "icons/icon-32.png"
+    }
   },
-  "permissions": ["activeTab", "scripting", "storage"],
+  "permissions": [
+    "activeTab",
+    "scripting",
+    "storage"
+  ],
   "content_scripts": [
     {
-      "matches": ["https://atlas-optim.vercel.app/applications*"],
-      "js": ["sync.js"],
+      "matches": [
+        "https://atlas-optim.vercel.app/applications*",
+        "https://atlas-optim.vercel.app/career*",
+        "https://atlas-optim.vercel.app/settings*"
+      ],
+      "js": [
+        "sync.js"
+      ],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": [
+        "https://jobs.ashbyhq.com/*",
+        "https://job-boards.greenhouse.io/*",
+        "https://boards.greenhouse.io/*",
+        "https://jobs.lever.co/*",
+        "https://*.myworkdayjobs.com/*",
+        "https://*.applytojob.com/*",
+        "https://*.pinpointhq.com/*",
+        "https://*.bamboohr.com/*",
+        "https://apply.workable.com/*",
+        "https://*.icims.com/*",
+        "https://jobs.smartrecruiters.com/*",
+        "https://*.recruitee.com/*",
+        "https://*.teamtailor.com/*",
+        "https://jobs.gem.com/*"
+      ],
+      "js": [
+        "done.js"
+      ],
       "run_at": "document_idle"
     }
-  ]
+  ],
+  "host_permissions": [
+    "https://atlas-optim.vercel.app/*",
+    "https://jobs.ashbyhq.com/*",
+    "https://job-boards.greenhouse.io/*",
+    "https://boards.greenhouse.io/*",
+    "https://jobs.lever.co/*",
+    "https://*.myworkdayjobs.com/*",
+    "https://*.applytojob.com/*",
+    "https://*.pinpointhq.com/*",
+    "https://*.bamboohr.com/*",
+    "https://apply.workable.com/*",
+    "https://*.icims.com/*",
+    "https://jobs.smartrecruiters.com/*",
+    "https://*.recruitee.com/*",
+    "https://*.teamtailor.com/*",
+    "https://jobs.gem.com/*",
+    "https://www.linkedin.com/*",
+    "https://smartapply.indeed.com/*",
+    "https://*.indeed.com/*",
+    "https://www.glassdoor.com/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  }
 }

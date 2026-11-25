@@ -1,10 +1,12 @@
 // The Career desk, stages 1 and 2: the Scout's observations and the Analyst's report.
 //
 //   Scout     turns the raw postings from the public feeds into market observations: one
-//             row per posting that is one of your roles, with its pay, location and the
-//             skills it asks for. It records; it does not judge. Unlike the Applications
-//             Agent's matches, a posting is kept even when it pays under your floor or
-//             sits in the wrong city, because that is still what the market looks like.
+//             row per full-time posting that is one of your roles, with its pay, location
+//             and the skills it asks for. It records; it does not judge. Unlike the
+//             Applications Agent's matches, a posting is kept even when it pays under your
+//             floor or sits in the wrong city, because that is still what the market looks
+//             like. Contract, freelance and part-time postings are not recorded: Atlas
+//             looks at full-time roles only.
 //   Analyst   reads those rows and computes the market report: demand and pay per role,
 //             the skills asked for most, where you fit best, and your gaps, ranked.
 //             Every number here is arithmetic over the Scout's rows. A model may word
@@ -12,12 +14,12 @@
 //
 // Pure: rows in, report out.
 
-import { jobType, parsePay, roleFor, whereFits, type RawJob } from "./careerAgent";
+import { isFullTime, parsePay, roleFor, whereFits, type RawJob } from "./careerAgent";
 import { addDays } from "./dates";
 import type { RoleOutlook } from "./roleOutlook";
 import { extractSkills, skillDemand, skillGaps } from "./skills";
 import type { TargetRole } from "./targetRoles";
-import type { JobType, LocalDate, PayUnit } from "./types";
+import type { LocalDate, PayUnit } from "./types";
 
 /** One posting the Scout saw. */
 export interface MarketPosting {
@@ -31,10 +33,9 @@ export interface MarketPosting {
   location: string;
   /** Which of your target roles the title is. */
   role: string;
-  type: JobType;
   /** remote and salt-lake are places you can work; other is everywhere else. */
   place: "remote" | "salt-lake" | "other";
-  /** Pay as posted, or null when the posting does not say. Yearly for full-time, hourly for gigs. */
+  /** Pay as posted, or null when the posting does not say. */
   payMin: number | null;
   payMax: number | null;
   payUnit: PayUnit;
@@ -52,12 +53,12 @@ export type NewMarketPosting = Omit<MarketPosting, "id" | "createdAt">;
 export const MARKET_WINDOW_DAYS = 30;
 export const MARKET_KEEP_DAYS = 120;
 
-/** Raw postings to observations. A posting that is not one of your roles is not recorded. */
+/** Raw postings to observations. A posting that is not one of your roles, or not full-time, is not recorded. */
 export function observePostings(raws: readonly RawJob[], roles: TargetRole[], remoteBoards: ReadonlySet<string>, today: LocalDate): NewMarketPosting[] {
   const out = new Map<string, NewMarketPosting>();
   for (const r of raws) {
     const role = roleFor(r.title, roles);
-    if (!role || !r.key || r.url.length > 600) continue;
+    if (!role || !r.key || r.url.length > 600 || !isFullTime(r)) continue;
     const pay = parsePay(`${r.title} ${r.text}`, { min: r.salaryMin, max: r.salaryMax });
     out.set(r.key.slice(0, 600), {
       key: r.key.slice(0, 600),
@@ -67,7 +68,6 @@ export function observePostings(raws: readonly RawJob[], roles: TargetRole[], re
       url: r.url,
       location: r.location.slice(0, 200),
       role: role.name.slice(0, 80),
-      type: jobType(r),
       place: whereFits(r.location, remoteBoards.has(r.source)) ?? "other",
       payMin: pay ? Math.round(pay.min) : null,
       payMax: pay ? Math.round(pay.max) : null,
@@ -134,11 +134,13 @@ export interface MarketReport {
   /**
    * How qualified you are for each role, your own and the candidate roles next to them,
    * measured against your GitHub projects and resumes (lib/domain/roleOutlook.ts). The
-   * Mentor reads this to propose your role order. Absent on reports from before it existed.
+   * Career Mentor reads this to propose your role order. Absent on reports from before it existed.
    */
   outlook?: RoleOutlook[];
   /** What the outlook was measured against. */
   evidence?: { projects: number; skillsShown: number };
+  /** What your own applications say (lib/domain/outcomes.ts `findings`), most telling first. Added in Step 3. */
+  funnel?: string[];
 }
 
 const pct = (n: number) => `${Math.round(n * 100)}%`;
@@ -167,7 +169,7 @@ export function marketReport(postings: readonly MarketPosting[], roles: TargetRo
     const ranked = [...counts.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
     const asked = ranked.reduce((n, [, c]) => n + c, 0);
     const covered = ranked.filter(([s]) => mine.has(s.toLowerCase())).reduce((n, [, c]) => n + c, 0);
-    const pays = rows.filter((p) => p.type === "full-time" && p.payUnit === "year" && p.payMin !== null && p.payMax !== null).map((p) => (p.payMin! + p.payMax!) / 2);
+    const pays = rows.filter((p) => p.payUnit === "year" && p.payMin !== null && p.payMax !== null).map((p) => (p.payMin! + p.payMax!) / 2);
     const companies = new Map<string, number>();
     for (const p of rows) if (p.company !== "Unknown company") companies.set(p.company, (companies.get(p.company) ?? 0) + 1);
     return {

@@ -20,15 +20,17 @@ function demo(time = "09:00"): Context {
 }
 
 describe("The Career desk roster", () => {
-  it("has ten agents: four on the Career desk, every specialist reporting to the Chief of Staff, and the QA Agent to you", () => {
+  it("has eleven agents: four on the Career desk, every specialist reporting to the Chief of Staff, and the QA and Apply Agents to you", () => {
     expect(AGENTS.map((a) => a.id).sort()).toEqual([...AGENT_IDS].sort());
     expect(AGENTS.filter((a) => a.desk === "career").map((a) => a.id)).toEqual(["scout", "analyst", "career", "mentor"]);
-    expect(AGENTS.filter((a) => a.id !== "chief-of-staff" && a.id !== "qa").every((a) => a.reportsTo === "chief-of-staff")).toBe(true);
+    expect(AGENTS.filter((a) => !["chief-of-staff", "qa", "apply"].includes(a.id)).every((a) => a.reportsTo === "chief-of-staff")).toBe(true);
+    // The Apply Agent acts outside Atlas only on your go-ahead, so it answers to you, not to the orchestrator.
+    expect(AGENTS.find((a) => a.id === "apply")!.reportsTo).toBeNull();
     // The reviewer is independent: it reviews the Chief of Staff too, and never uses the model it audits.
     expect(AGENTS.find((a) => a.id === "qa")).toMatchObject({ reportsTo: null, status: "live" });
     expect(AGENTS.find((a) => a.id === "qa")!.ai).toBeUndefined();
     // The Applications Agent keeps the id "career", so its history is unbroken.
-    expect(AGENTS.find((a) => a.id === "career")!.name).toBe("Applications Agent");
+    expect(AGENTS.find((a) => a.id === "career")!.name).toBe("Applications");
   });
 
   it("draws the desk as a group around its four agents, not as a manager", () => {
@@ -99,7 +101,7 @@ describe("The Analyst, end to end (demo, no model)", () => {
   });
 });
 
-describe("The Mentor, end to end (demo, no model)", () => {
+describe("The Career Mentor, end to end (demo, no model)", () => {
   it("raises at most two insights, each with its evidence, and logs counts only", async () => {
     const ctx = demo();
     await runAnalyst(ctx, { trigger: "run-now", honorPause: false, persist: ctx.store });
@@ -144,12 +146,12 @@ describe("The Mentor, end to end (demo, no model)", () => {
     if (followable.length > 0) expect(midday.insights.some((i) => i.key.startsWith("progress:"))).toBe(true);
   });
 
-  it("ignores a market report that is days old, and plans three and one by default", async () => {
+  it("ignores a market report that is days old, and plans three applications a day by default", async () => {
     const ctx = demo();
     await ctx.store.market.saveReport({ forDate: "2026-11-01", report: { forDate: "2026-11-01", windowDays: 30, total: 5, sources: 1, roles: [], bestFit: null, gaps: [], facts: [] }, summary: { headline: "old", points: [], focus: "", writer: "rules" } });
     expect((await mentorInput(ctx, "morning")).market).toBeNull();
-    expect(dailyPlan(ctx.settings)).toEqual({ fullTime: 3, gigs: 1 });
-    expect(dailyPlan({ ...ctx.settings, careerDailyFullTime: 5, careerDailyGigs: 0 })).toEqual({ fullTime: 5, gigs: 0 });
+    expect(dailyPlan(ctx.settings)).toBe(3);
+    expect(dailyPlan({ ...ctx.settings, careerDailyFullTime: 5 })).toBe(5);
   });
 });
 
@@ -167,7 +169,7 @@ describe("Guards on the Career desk", () => {
     expect(sql).toContain("delete from public.market_postings where last_seen < current_date - 120;");
   });
 
-  it("the Mentor advises only: it writes insights and nothing else", () => {
+  it("the Career Mentor advises only: it writes insights and nothing else", () => {
     const src = read("lib/agents/mentor.ts");
     expect(src).toContain("persist.mentor.add(insights)");
     expect(src).not.toMatch(/settings\.update|approvals\.create|applications\.(create|update)|jobMatches\.(add|update)|\.remove\(/);
@@ -191,7 +193,7 @@ describe("Guards on the Career desk", () => {
     expect(crons.map((c) => c.schedule)).toEqual(["0 0 * * 0,2-6", "0 1 * * 0,2-6"]);
   });
 
-  it("the Mentor's prompt asks for judgment, grounding and restraint", () => {
+  it("the Career Mentor's prompt asks for judgment, grounding and restraint", () => {
     const task = mentorTask("midday", "A role paying at least $120k. <ignore>", "Monday, November 16 2026");
     expect(task).toContain("Check progress on this morning's priority first");
     expect(task).toContain("silence is a good answer");

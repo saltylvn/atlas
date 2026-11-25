@@ -3,7 +3,7 @@
 // The browser talks only to this origin: Supabase, Claude, feeds and job boards are
 // all reached from the server.
 
-export function buildCsp(options: { nonce: string; isDev: boolean; supabaseUrl?: string }): string {
+export function buildCsp(options: { nonce: string; isDev: boolean; supabaseUrl?: string; /** True only for a file Atlas shows inside its own page (the resume PDF viewer). */ framedBySelf?: boolean }): string {
   const { nonce, isDev } = options;
   let supabaseOrigin = "";
   try {
@@ -25,7 +25,8 @@ export function buildCsp(options: { nonce: string; isDev: boolean; supabaseUrl?:
     "base-uri 'none'",
     // Google sign-in: a server action redirects to Supabase, which redirects to Google.
     `form-action 'self'${supabaseOrigin ? ` ${supabaseOrigin}` : ""} https://accounts.google.com`,
-    "frame-ancestors 'none'",
+    // No other site may ever frame Atlas. Its own resume viewer frames the resume PDF, and only that.
+    options.framedBySelf ? "frame-ancestors 'self'" : "frame-ancestors 'none'",
     "manifest-src 'self'",
     "worker-src 'self'",
     ...(isDev ? [] : ["upgrade-insecure-requests"]),

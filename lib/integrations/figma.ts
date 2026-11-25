@@ -1,7 +1,8 @@
 import "server-only";
 import type { FigmaNode } from "@/lib/domain/resumeSync";
 import { env } from "@/lib/env";
-import { HttpError, safeFetchJson } from "@/lib/security/safeFetch";
+import { z } from "zod";
+import { HttpError, safeFetchBytes, safeFetchJson } from "@/lib/security/safeFetch";
 
 // Figma, read-only. Atlas reads one thing: the text of the resume frames that the Notion
 // Resumes database links to. The token is a personal access token with the single scope
@@ -69,4 +70,48 @@ export async function readFigmaFrames(fileKey: string, nodeIds: readonly string[
     }
     throw new FigmaError("unavailable");
   }
+}
+
+/** The most a resume PDF may weigh. Job boards cap uploads too; Greenhouse at about 100 MB, most ATS far lower. */
+export const MAX_PDF_BYTES = 5 * 1024 * 1024;
+/** Where Figma's rendered exports live. On the allowlist; any other host is refused. */
+export const FIGMA_EXPORT_HOST = "figma-alpha-api.s3.us-west-2.amazonaws.com";
+
+const Exported = z.object({ err: z.string().nullable().optional(), images: z.record(z.string(), z.string().nullable()) });
+
+/**
+ * One resume frame as a PDF, for the Apply Agent (docs/design.md, 5.6). Figma renders it and
+ * returns a temporary link to the file; the bytes are read from there and checked to be a PDF.
+ * Read-only, with the same token as the resume sync.
+ */
+export async function exportFramePdf(fileKey: string, nodeId: string): Promise<Uint8Array> {
+  const token = cleanFigmaToken(env().FIGMA_TOKEN);
+  if (token.length < 20) throw new FigmaError("not_configured");
+  if (!FILE_KEY.test(fileKey) || !NODE_ID.test(nodeId)) throw new FigmaError("not_found");
+  let link: string | null | undefined;
+  try {
+    const res = Exported.parse(await safeFetchJson(`${API}/images/${fileKey}?ids=${encodeURIComponent(nodeId)}&format=pdf`, { headers: { "x-figma-token": token }, timeoutMs: 30_000, maxBytes: 200_000 }));
+    link = res.images[nodeId];
+  } catch (err) {
+    if (err instanceof HttpError) {
+      if (err.status === 401 || err.status === 403) throw new FigmaError("bad_token");
+      if (err.status === 404) throw new FigmaError("not_found");
+      if (err.status === 429) throw new FigmaError("rate_limited");
+    }
+    throw new FigmaError("unavailable");
+  }
+  if (!link) throw new FigmaError("not_found");
+  let host = "";
+  try {
+    host = new URL(link).hostname;
+  } catch {
+    host = "";
+  }
+  if (host !== FIGMA_EXPORT_HOST) throw new FigmaError("unavailable");
+  // The file link carries no credentials: it is fetched without the token.
+  const bytes = await safeFetchBytes(link, { accept: "application/pdf", timeoutMs: 30_000, maxBytes: MAX_PDF_BYTES, revalidate: 0 }).catch(() => {
+    throw new FigmaError("unavailable");
+  });
+  if (bytes.length < 100 || Buffer.from(bytes.subarray(0, 5)).toString("latin1") !== "%PDF-") throw new FigmaError("unavailable");
+  return bytes;
 }

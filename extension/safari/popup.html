@@ -11,14 +11,44 @@
       <img src="icons/icon-32.png" alt="" width="20" height="20" />
       <h1>Atlas Autofill</h1>
     </header>
-    <p id="synced" class="muted">Checking your answers…</p>
-    <form id="fill">
-      <label>Company <input id="company" autocomplete="off" maxlength="120" /></label>
-      <label>Role <input id="role" autocomplete="off" maxlength="160" /></label>
-      <button type="submit" id="go">Fill this page</button>
-    </form>
-    <p id="result" role="status"></p>
-    <p class="muted small">Fills empty fields only. Never submits, never attaches files, never answers work authorization or demographic questions. Review, then submit yourself.</p>
+
+    <!-- Not connected yet: the key from Atlas Settings. -->
+    <section id="connect" hidden aria-label="Connect to Atlas">
+      <p class="strong">Connect to Atlas</p>
+      <p class="muted small">In Atlas, open Settings and press Connect Atlas Autofill. With this page open in the same browser, the key is picked up by itself; or paste it here.</p>
+      <label>Key <input id="key" autocomplete="off" spellcheck="false" /></label>
+      <button type="button" id="key-save">Connect</button>
+      <p id="key-result" class="small" role="status"></p>
+    </section>
+
+    <!-- The main action. -->
+    <button type="button" id="assist">Help me apply on this page</button>
+    <p id="assist-result" class="small" role="status"></p>
+
+    <!-- The job you picked from your queue. -->
+    <section id="job" hidden aria-label="The job you are applying to">
+      <p class="eyebrow">Applying to</p>
+      <p id="job-title" class="strong"></p>
+      <p id="job-resume" class="muted small"></p>
+      <div class="row">
+        <button type="button" id="job-open" class="ghost">Open posting</button>
+        <button type="button" id="job-done" class="ghost">Mark submitted</button>
+      </div>
+      <button type="button" id="job-clear" class="link">Pick another job</button>
+    </section>
+
+    <!-- A job site said your application went in. -->
+    <p id="applied" class="note small" hidden role="status"></p>
+
+    <!-- Your Apply Queue, as Atlas last showed it. -->
+    <section id="queue" hidden aria-label="Apply Queue">
+      <p class="eyebrow" id="queue-title">Apply Queue</p>
+      <ul id="queue-list"></ul>
+      <button type="button" id="queue-atlas" class="link">Open the queue in Atlas</button>
+    </section>
+
+    <p id="synced" class="muted small"></p>
+    <p class="muted small">Atlas reads the form, proposes answers (yours first, then Gemini's, each with its source) and fills only what you approve. It never submits.</p>
     <script src="popup.js"></script>
   </body>
 </html>

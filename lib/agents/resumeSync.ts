@@ -12,7 +12,8 @@ import { mirrorResumes } from "@/lib/knowledge/resumeMirror";
 import { isPaused, logRun, NO_MODEL } from "./log";
 import { tracer } from "./trace";
 
-// The Applications Agent's resume sync. Once a day, about 6 PM: if a resume changed in
+// The Applications Agent's resume sync. Once a week, Monday about 6 PM (Figma's free plan
+// allows only a handful of file reads a month): if a resume changed in
 // Figma, its text is mirrored into that role's page in Notion and indexed for Ask Atlas.
 //
 // Reads Figma (read-only token) and the Resumes database. Writes one thing: the callout
@@ -22,7 +23,7 @@ import { tracer } from "./trace";
 /** The activity-log task name. */
 export const RESUME_SYNC_TASK = "Resume sync (Figma to Notion)";
 
-/** Leaves the rest of the evening run (the Mentor) its share of the request's 60 seconds. */
+/** Leaves the rest of the evening run (the Career Mentor) its share of the request's 60 seconds. */
 const SYNC_WINDOW_MS = 22_000;
 
 export interface ResumeSyncOptions {

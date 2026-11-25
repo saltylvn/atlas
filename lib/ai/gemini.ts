@@ -176,7 +176,7 @@ async function attempt<S extends z.ZodType>(
 
 /**
  * After the writer model times out, fails busy or rate-limited, or loses the race to the
- * fast model, it rests this long: the calls that follow (the Mentor after the Analyst, in
+ * fast model, it rests this long: the calls that follow (the Career Mentor after the Analyst, in
  * one brief) go straight to the fast model with their whole time. Per server instance.
  */
 export const WRITER_REST_MS = 30 * 60_000;

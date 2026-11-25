@@ -1,6 +1,6 @@
-// The Career desk, stage 4: the Mentor.
+// The Career desk, stage 4: the Career Mentor.
 //
-// The Mentor looks at the whole job hunt from above and says the one or two things that
+// The Career Mentor looks at the whole job hunt from above and says the one or two things that
 // matter most right now. It runs three times a day with a different job each time:
 //   morning   sets the day's priority
 //   midday    checks progress on it
@@ -21,14 +21,17 @@
 
 import { ROLE_NOT_LISTED } from "./applications";
 import { daysBetween } from "./dates";
+import type { ProofPlan } from "./gapPlan";
+import { levelVerdict, MAX_YEARS_DEFAULT } from "./levelPolicy";
 import type { MarketReport } from "./market";
-import type { Application, Approval, JobMatch, LocalDate } from "./types";
+import { perfectFitObservations } from "./perfectFit";
+import type { Application, Approval, Contact, JobMatch, LocalDate } from "./types";
 
 export type MentorSlot = "morning" | "midday" | "evening";
 export const MENTOR_SLOTS: readonly MentorSlot[] = ["morning", "midday", "evening"];
 export const MENTOR_SLOT_LABEL: Record<MentorSlot, string> = { morning: "Morning priority", midday: "Midday check", evening: "Evening review" };
 
-export type MentorArea = "activity" | "queue" | "results" | "targeting" | "skills" | "resume" | "profile" | "gigs" | "win";
+export type MentorArea = "activity" | "queue" | "results" | "targeting" | "skills" | "resume" | "profile" | "win";
 
 export interface Observation {
   /** Stable name of what was observed ("replies:by-role"), so memory can recognise it later. */
@@ -60,6 +63,8 @@ export interface MentorInsight {
   writer: "model" | "rules";
   /** "replaced": a later review with fresher numbers said it again (server only; not a judgment of yours). */
   status: "new" | "done" | "dismissed" | "replaced";
+  /** What you did, in your own words, when you checked Action Taken (at most 500 characters). */
+  ownerNote?: string;
   createdAt: string;
 }
 
@@ -81,10 +86,18 @@ export interface MentorInput {
   answersTotal: number;
   /** Your LinkedIn text as pasted, or "". */
   linkedin: string;
-  /** Planned applications a day, per track. */
-  plan: { fullTime: number; gigs: number };
+  /** Planned applications a day. */
+  plan: number;
   /** Insights from the last 14 days, newest first. */
   prior: MentorInsight[];
+  /** Jobs you marked Perfect fit, newest first: the ones you most want. */
+  perfect?: JobMatch[];
+  /** People you know, so a perfect fit can name a referral. */
+  contacts?: Contact[];
+  /** Your proof projects (Step 3): the open one and those GitHub closed. */
+  proof?: ProofPlan;
+  /** The most years of experience a posting may ask for (lib/domain/levelPolicy.ts). */
+  maxYears?: number;
 }
 
 const POSITIVE = new Set(["replied", "interview", "offer"]);
@@ -104,7 +117,6 @@ export function observe(input: MentorInput): Observation[] {
   const sent = applications.filter((a) => a.appliedOn && a.status !== "saved");
   const since = (a: Application) => daysBetween(a.appliedOn!, today);
   const sentToday = sent.filter((a) => a.appliedOn === today);
-  const fullTimeToday = sentToday.filter((a) => a.type === "full-time").length;
 
   // --- activity
   if (sent.length === 0) {
@@ -112,18 +124,24 @@ export function observe(input: MentorInput): Observation[] {
   } else {
     const last = sent.map((a) => a.appliedOn!).sort().at(-1)!;
     const quiet = daysBetween(last, today);
-    if (quiet >= 3) add({ id: "activity:gap", area: "activity", severity: 45 + quiet * 5, metric: String(quiet), fact: `Your last application went out ${quiet} days ago, on ${last}.`, action: `Send ${plural(plan.fullTime, "application")} today. The picks on the Career page come with the resume and your answers ready.` });
+    if (quiet >= 3) add({ id: "activity:gap", area: "activity", severity: 45 + quiet * 5, metric: String(quiet), fact: `Your last application went out ${quiet} days ago, on ${last}.`, action: `Send ${plural(plan, "application")} today. The picks on the Career page come with the resume and your answers ready.` });
   }
-  if (plan.fullTime > 0) {
-    if (fullTimeToday >= plan.fullTime) add({ id: "win:plan", area: "win", severity: 38, metric: String(fullTimeToday), fact: `You sent ${plural(fullTimeToday, "full-time application")} today, which meets the plan of ${plan.fullTime}.`, action: "Stop here for today. Consistency beats volume." });
-    else add({ id: "activity:today", area: "activity", severity: fullTimeToday === 0 ? 52 : 34, metric: String(fullTimeToday), fact: `${fullTimeToday} of ${plan.fullTime} planned full-time applications sent today.`, action: `Send ${plural(plan.fullTime - fullTimeToday, "more application")} from the Approval Queue before the day ends.` });
+  if (plan > 0) {
+    if (sentToday.length >= plan) add({ id: "win:plan", area: "win", severity: 38, metric: String(sentToday.length), fact: `You sent ${plural(sentToday.length, "application")} today, which meets the plan of ${plan}.`, action: "Stop here for today. Consistency beats volume." });
+    else add({ id: "activity:today", area: "activity", severity: sentToday.length === 0 ? 52 : 34, metric: String(sentToday.length), fact: `${sentToday.length} of ${plan} planned applications sent today.`, action: `Send ${plural(plan - sentToday.length, "more application")} from your apply queues before the day ends.` });
   }
 
+  // --- the jobs you most want: each perfect fit, with what it asks, what you have and its next step
+  for (const o of perfectFitObservations({ today, perfect: input.perfect ?? [], approvals, applications, skills, resumeSkills: resumes?.skills ?? null, contacts: input.contacts ?? [] })) add(o);
+
   // --- the queue
-  const waiting = approvals.filter((a) => a.status === "pending" && (a.kind === "application" || a.kind === "gig-proposal"));
+  // Jobs you said yes to, waiting for you to apply on your MacBook.
+  const waiting = approvals.filter((a) => a.status === "pending" && a.kind === "application");
+  const fits = matches.filter((m) => m.status === "new" && m.rating === 0 && daysBetween(m.shownOn, today) <= 3).length;
+  if (fits >= 3) add({ id: "queue:fits", area: "queue", severity: 42 + Math.min(fits, 10) * 2, metric: String(fits), fact: `${fits} good fits are waiting for your thumb.`, action: "Open Apply and give each a 👍 or 👎. A 👍 puts the job in the Apply Queue." });
   if (waiting.length > 0) {
     const oldest = Math.max(...waiting.map((a) => daysBetween(localDay(a.createdAt), today)));
-    if (waiting.length >= 3 || oldest >= 2) add({ id: "queue:waiting", area: "queue", severity: 40 + waiting.length * 4 + oldest * 4, metric: `${waiting.length}/${oldest}`, fact: `${plural(waiting.length, "apply kit")} ${waiting.length === 1 ? "is" : "are"} waiting in the Approval Queue; the oldest has waited ${plural(oldest, "day")}.`, action: "Clear the oldest first: each kit has the resume and answers ready. Reject the ones you no longer want, so the list stays honest." });
+    if (waiting.length >= 3 || oldest >= 2) add({ id: "queue:waiting", area: "queue", severity: 40 + waiting.length * 4 + oldest * 4, metric: `${waiting.length}/${oldest}`, fact: `${plural(waiting.length, "apply kit")} ${waiting.length === 1 ? "is" : "are"} waiting in your Apply Queue; the oldest has waited ${plural(oldest, "day")}.`, action: "Clear the oldest first: each kit has the resume and answers ready. Mark the ones you no longer want Not a Good Fit, so the list stays honest." });
   }
   const followUps = approvals.filter((a) => a.status === "pending" && a.kind === "follow-up").length;
   if (followUps > 0) add({ id: "queue:follow-ups", area: "queue", severity: 44 + followUps * 3, metric: String(followUps), fact: `${plural(followUps, "follow-up email")} ${followUps === 1 ? "is" : "are"} drafted and waiting for you to send.`, action: "Send them. A follow-up a week after applying is the cheapest way to raise your reply rate." });
@@ -133,7 +151,7 @@ export function observe(input: MentorInput): Observation[] {
   // not name it. Without the role, replies cannot be compared role by role.
   const unnamed = sent.filter((a) => a.role === ROLE_NOT_LISTED).length;
   if (sent.length >= 3 && unnamed / sent.length >= 0.4) {
-    add({ id: "results:no-role", area: "results", severity: 47, metric: `${unnamed}/${sent.length}`, fact: `${unnamed} of your ${sent.length} tracked applications have no role on them, so replies cannot be compared by role.`, action: "Open Applications and fill in the role on each one. It takes a minute, and it is what lets the Mentor see which roles answer." });
+    add({ id: "results:no-role", area: "results", severity: 47, metric: `${unnamed}/${sent.length}`, fact: `${unnamed} of your ${sent.length} tracked applications have no role on them, so replies cannot be compared by role.`, action: "Open Applications and fill in the role on each one. It takes a minute, and it is what lets the Career Mentor see which roles answer." });
   }
   const mature = sent.filter((a) => since(a) >= 7);
   const positive = (rows: Application[]) => rows.filter((a) => POSITIVE.has(a.status)).length;
@@ -159,9 +177,29 @@ export function observe(input: MentorInput): Observation[] {
   // --- wins that need a response
   for (const a of applications) {
     const age = daysBetween(localDay(a.statusAt), today);
-    if ((a.status === "interview" || a.status === "offer") && age <= 3) add({ id: `win:${a.status}:${a.id}`, area: "win", severity: a.status === "offer" ? 90 : 68, metric: a.status, fact: `${a.company} moved your ${a.role} application to ${a.status}.`, action: a.status === "offer" ? "Read the offer against your pay floor before you answer, and ask for a day if you need one." : "Block 45 minutes to prepare. The prep notes for this interview are on the Job watchlist page." });
+    if ((a.status === "interview" || a.status === "offer") && age <= 3) add({ id: `win:${a.status}:${a.id}`, area: "win", severity: a.status === "offer" ? 90 : 68, metric: a.status, fact: `${a.company} moved your ${a.role} application to ${a.status}.`, action: a.status === "offer" ? "Read the offer against your pay floor before you answer, and ask for a day if you need one." : "Block 45 minutes to prepare: open the application for its Interview prep (likely questions, your stories, honest gaps) and practise out loud." });
     else if (a.status === "replied" && age <= 2) add({ id: `win:replied:${a.id}`, area: "win", severity: 52, metric: "replied", fact: `${a.company} replied about your ${a.role} application.`, action: "Answer within a day. Speed is a signal they read." });
   }
+
+  // --- your level (lib/domain/levelPolicy.ts): the same rule the Scout, the queue and Pitch use
+  const maxYears = input.maxYears ?? MAX_YEARS_DEFAULT;
+  const queuedAbove = approvals.filter((a) => a.kind === "application" && a.status === "pending" && levelVerdict(a.title, a.detail, maxYears).fit === "above");
+  if (queuedAbove.length > 0) {
+    add({ id: "targeting:queue-above-level", area: "targeting", severity: 58 + Math.min(12, queuedAbove.length * 2), metric: String(queuedAbove.length), fact: `${plural(queuedAbove.length, "job")} in your Apply Queue ${queuedAbove.length === 1 ? "is" : "are"} above your level: a senior title, or more than ${maxYears} years of experience asked. Those are the applications a screen turns down.`, action: `Open the Apply page and clear ${queuedAbove.length === 1 ? "it" : "them"} under Your level, so today's applications go to roles asking for ${maxYears} years or fewer.` });
+  }
+  const sentAbove = applications.filter((a) => a.status !== "saved" && a.appliedOn && daysBetween(a.appliedOn, today) <= 14 && levelVerdict(a.role, "", maxYears).fit === "above");
+  if (sentAbove.length >= 2) {
+    add({ id: "targeting:applied-above-level", area: "targeting", severity: 66, metric: String(sentAbove.length), fact: `${sentAbove.length} of your applications in the last 14 days went to senior, staff or lead titles. Those ask for more years than you have.`, action: `Apply only to junior, associate and level I roles asking for ${maxYears} years or fewer today; check the years asked in the posting before you start.` });
+  }
+
+  // --- your proof project (Step 3, lib/domain/gapPlan.ts): one gap at a time, closed when GitHub shows it
+  const proof = input.proof?.current ?? null;
+  if (proof) {
+    const days = daysBetween(proof.assignedOn, today);
+    add({ id: `skills:proof:${proof.skill}`, area: "skills", severity: days >= 7 ? 62 : 52, metric: `${days}d`, fact: `Your proof project is ${proof.skill}, asked for in ${pct(proof.share)} of ${proof.role} postings that name skills. It was assigned ${days === 0 ? "today" : `${plural(days, "day")} ago`}, and no GitHub repo pushed since shows it yet.`, action: `Push today's piece of the ${proof.skill} project to GitHub: ${proof.brief.split(/(?<=\.)\s/)[0]}` });
+  }
+  const closed = input.proof?.done.find((d) => d.closedOn && daysBetween(d.closedOn, today) <= 3);
+  if (closed) add({ id: `win:proof:${closed.skill}`, area: "win", severity: 70, metric: closed.closedOn ?? "", fact: `Your ${closed.skill} proof project is done: ${closed.repo} on GitHub shows it.`, action: `Add one resume line for ${closed.repo} with what it does, and tick ${closed.skill} on Growth.` });
 
   // --- the market, your skills and your resumes
   if (market && market.total > 0 && skills.length === 0) {
@@ -176,7 +214,8 @@ export function observe(input: MentorInput): Observation[] {
       if (onResume) add({ id: `skills:unmarked:${gap.skill}`, area: "skills", severity: 40, metric: pct(gap.share), fact: `${gap.skill} is asked for in ${pct(gap.share)} of postings for your roles. Your resume mentions it, but it is not marked as a skill of yours.`, action: `Tick ${gap.skill} on Growth so fit checks and the market report count it.` });
       // A real gap takes weeks to close, so it ranks under a fix you can make today
       // (a skill you have that no resume mentions scores 74).
-      else add({ id: `skills:gap:${gap.skill}`, area: "skills", severity: 44 + gap.share * 40, metric: pct(gap.share), fact: `${gap.skill} is asked for in ${pct(gap.share)} of postings for your roles (${list(gap.roles)}), and it is not in your skills${resumes ? " or your resumes" : ""}.`, action: `Decide today whether ${gap.skill} is a real gap or only missing from the page. If you have used it, add one resume line with a result. If not, put a small project for it on Growth.` });
+      // While a proof project is open, it is the gap being closed: one at a time.
+      else if (!proof) add({ id: `skills:gap:${gap.skill}`, area: "skills", severity: 44 + gap.share * 40, metric: pct(gap.share), fact: `${gap.skill} is asked for in ${pct(gap.share)} of postings for your roles (${list(gap.roles)}), and it is not in your skills${resumes ? " or your resumes" : ""}.`, action: `Decide today whether ${gap.skill} is a real gap or only missing from the page. If you have used it, add one resume line with a result. If not, put a small project for it on Growth.` });
     }
     if (resumes && resumes.names.length > 0) {
       const onResume = new Set(resumes.skills.map((s) => s.toLowerCase()));
@@ -220,13 +259,7 @@ export function observe(input: MentorInput): Observation[] {
     }
   }
 
-  // --- the two tracks
-  const recent14 = sent.filter((a) => since(a) <= 14);
-  if (recent14.length >= 5) {
-    const gigs = recent14.filter((a) => a.type === "gig").length;
-    if (gigs / recent14.length > 0.4) add({ id: "gigs:share", area: "gigs", severity: 55, metric: `${gigs}/${recent14.length}`, fact: `${gigs} of your last ${recent14.length} applications were gigs. Your plan is about one in five.`, action: "Full-time first this week: gigs are for the portfolio, not the goal." });
-    else if (gigs === 0 && plan.gigs > 0) add({ id: "gigs:none", area: "gigs", severity: 36, metric: "0", fact: `None of your last ${recent14.length} applications were gig proposals. Your plan is about one in five.`, action: "Send one proposal this week for a small, fixed-price job in your niche. First reviews are what the profile needs." });
-  }
+  // --- unrated matches
   const untouched = matches.filter((m) => m.status === "new" && m.rating === 0 && daysBetween(m.shownOn, today) <= 7).length;
   if (untouched >= 15) add({ id: "queue:unrated", area: "queue", severity: 32, metric: String(untouched), fact: `${untouched} matches from the last week are unrated.`, action: "Thumb through them once. Your thumbs teach the ranking what to bring you." });
 
@@ -243,7 +276,7 @@ const WEIGHT: Record<MentorSlot, Partial<Record<MentorArea, number>>> = {
   evening: { results: 1.3, targeting: 1.2, skills: 1.15, resume: 1.2, profile: 1.15, queue: 0.7, activity: 0.9 },
 };
 
-/** Below this, the Mentor says nothing. */
+/** Below this, the Career Mentor says nothing. */
 export const WORTH_SAYING = 40;
 export const MAX_INSIGHTS = 2;
 
@@ -257,7 +290,7 @@ export interface Eligible extends Observation {
 }
 
 /**
- * What the Mentor may speak about in this run: the observations it has not already made,
+ * What the Career Mentor may speak about in this run: the observations it has not already made,
  * was not told to drop, and, after the morning, a check on the morning's priority.
  */
 /**
@@ -319,7 +352,7 @@ export function onePerArea<T extends { area: MentorArea }>(pool: readonly T[]): 
   return pool.filter((o) => (seen.has(o.area) ? false : (seen.add(o.area), true)));
 }
 
-/** The Mentor without a model: the heaviest observations, in the rules' own words. */
+/** The Career Mentor without a model: the heaviest observations, in the rules' own words. */
 export function rulesInsights(input: MentorInput, pool: readonly Eligible[] = eligible(input)): NewInsight[] {
   return onePerArea(pool.filter((o) => o.weight >= WORTH_SAYING))
     .slice(0, MAX_INSIGHTS)
@@ -356,7 +389,7 @@ export function acceptInsights(input: MentorInput, pool: readonly Eligible[], pr
     const main = cited[0]!;
     // Two insights are two subjects: never the same observation, never the same area.
     if (used.has(main.id) || out.some((i) => i.area === main.area)) continue;
-    const known = new Set([...cited.flatMap((o) => [...numbers(o.fact), ...numbers(o.action)]), ...materials.flatMap(numbers), String(input.plan.fullTime), String(input.plan.gigs)]);
+    const known = new Set([...cited.flatMap((o) => [...numbers(o.fact), ...numbers(o.action)]), ...materials.flatMap(numbers), String(input.plan)]);
     if (![p.title, p.insight, p.action].flatMap(numbers).every((n) => known.has(n))) continue;
     used.add(main.id);
     out.push({ forDate: input.today, slot: input.slot, key: main.id, area: main.area, title: p.title.trim(), body: p.insight.trim(), action: p.action.trim(), evidence: cited.map((o) => o.fact), metric: main.metric, writer: "model", status: "new" });
@@ -368,7 +401,7 @@ export function acceptInsights(input: MentorInput, pool: readonly Eligible[], pr
 /** Something this serious is said even when a model chose silence. */
 export const MUST_SAY = 80;
 
-/** The line the Mentor reports to the Chief of Staff. */
+/** The line the Career Mentor reports to the Chief of Staff. */
 export function mentorHeadline(slot: MentorSlot, insights: readonly Pick<MentorInsight, "title">[]): string {
   return insights.length ? `${MENTOR_SLOT_LABEL[slot]}: ${insights[0]!.title}${insights.length > 1 ? ` (and ${insights.length - 1} more)` : ""}` : `${MENTOR_SLOT_LABEL[slot]}: nothing new worth your attention.`;
 }
@@ -415,14 +448,22 @@ export function slotAt(hhmm: string): MentorSlot {
 }
 
 /**
- * Why the Mentor's last review deserves another try, or null when it went fine: it did not
+ * Why the Career Mentor's last review deserves another try, or null when it went fine: it did not
  * finish, or it fell back to its rules while the AI model is on (the model did not answer).
  * Today and Mission Control then offer Refresh and review.
  */
 export function mentorRetryReason(runs: readonly { agent: string; task: string; status: string; detail: string }[], aiOn: boolean): string | null {
   const last = runs.find((r) => r.agent === "mentor" && r.status !== "started" && (r.task.startsWith("Mentor: ") || r.task === "Refresh and review"));
   if (!last) return null;
-  if (last.status === "failed") return "The Mentor's last review did not finish.";
-  if (aiOn && /by rules/.test(last.detail)) return "The Mentor's last review used its rules: the AI model did not answer.";
+  if (last.status === "failed") return "The Career Mentor's last review did not finish.";
+  if (aiOn && /by rules/.test(last.detail)) return "The Career Mentor's last review used its rules: the AI model did not answer.";
   return null;
+}
+
+/** The last six things said, plus every Action Taken with your note from the last 30 days. */
+export function recentForModel(prior: readonly MentorInsight[], today: string): { date: string; slot: string; title: string; status: string; youDid?: string }[] {
+  const row = (i: MentorInsight) => ({ date: i.forDate, slot: i.slot, title: i.title, status: i.status === "done" ? "action taken" : i.status, ...(i.status === "done" && i.ownerNote ? { youDid: i.ownerNote.replace(/[<>]/g, " ").slice(0, 300) } : {}) });
+  const latest = prior.slice(0, 6);
+  const notes = prior.filter((i) => i.status === "done" && i.ownerNote && !latest.includes(i) && daysBetween(i.forDate, today) <= 30).slice(0, 8);
+  return [...latest, ...notes].map(row);
 }

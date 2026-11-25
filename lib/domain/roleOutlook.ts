@@ -4,18 +4,18 @@
 //             roles next to them. For each: how much of what its postings ask for you can
 //             show (in a GitHub project or a resume), how many postings there are, the
 //             trend, the pay, and how your own applications to it have gone.
-//   Mentor    turns the outlook into a proposal: your roles re-ordered so the one you are
+//   Career Mentor    turns the outlook into a proposal: your roles re-ordered so the one you are
 //             most qualified for comes first, the three to focus on now, and at most one
 //             candidate role worth adding. A model may judge the order; these rules decide
 //             what it is allowed to say and check what it said.
 //
 // Nothing here changes your roles. A proposal waits for your approval, and only then is
-// the order written to Notion.
+// your order in Atlas changed. At most five roles: an added role takes the last place.
 
 import { daysBetween } from "./dates";
 import { MIN_POSTINGS, numbersGrounded, type MarketPosting } from "./market";
 import { isShown, type SkillEvidence } from "./portfolio";
-import type { TargetRole } from "./targetRoles";
+import { MAX_ROLES, type TargetRole } from "./targetRoles";
 import type { Application, LocalDate } from "./types";
 
 export interface AskedSkill {
@@ -89,7 +89,7 @@ export function roleOutlook(
     });
     const byProject = new Map<string, number>();
     for (const a of ranked.slice(0, 12)) for (const p of evidence.get(a[0].toLowerCase())?.projects ?? []) byProject.set(p, (byProject.get(p) ?? 0) + 1);
-    const pays = rows.filter((p) => p.type === "full-time" && p.payUnit === "year" && p.payMin !== null && p.payMax !== null).map((p) => (p.payMin! + p.payMax!) / 2);
+    const pays = rows.filter((p) => p.payUnit === "year" && p.payMin !== null && p.payMax !== null).map((p) => (p.payMin! + p.payMax!) / 2);
     const payMedian = median(pays);
     const sent = applications.filter((a) => a.targetRole === role.name && a.appliedOn && a.status !== "saved");
     const responses = sent.filter((a) => POSITIVE.has(a.status)).length;
@@ -176,7 +176,7 @@ export interface RoleReason {
 }
 
 export interface RoleProposalDraft {
-  /** Your order when the proposal was made. Approval is refused if Notion's order has moved since. */
+  /** Your order when the proposal was made. Approval is refused if your order has moved since. */
   base: string[];
   /** The proposed order, including any role added. */
   order: string[];
@@ -236,6 +236,9 @@ export function draftProposal(outlook: readonly RoleOutlook[]): RoleProposalDraf
       added.push(c.role);
     }
   }
+  // You target at most five roles: a role added to a full list takes the last place's spot.
+  const dropped = order.slice(MAX_ROLES);
+  order = order.slice(0, MAX_ROLES);
   const focus = order.slice(0, FOCUS);
   const moved = order.filter((r) => base.includes(r) && order.filter((x) => base.includes(x)).indexOf(r) < base.indexOf(r));
   const reasons: RoleReason[] = [...new Set([...added, ...moved, ...focus])].slice(0, 6).map((role) => {
@@ -251,7 +254,7 @@ export function draftProposal(outlook: readonly RoleOutlook[]): RoleProposalDraf
     order,
     added,
     focus,
-    headline: order[0] !== base[0] ? `Lead with ${order[0]}: it is the role you can show the most for (${pct(lead.qualified)})` : added.length ? `Consider adding ${added[0]}: it would sit in your top three` : `Re-order your roles: ${list(moved.slice(0, 2))} moved up on what you can show`,
+    headline: order[0] !== base[0] ? `Lead with ${order[0]}: it is the role you can show the most for (${pct(lead.qualified)})` : added.length ? `Consider adding ${added[0]}${dropped.length ? ` in place of ${list(dropped)}` : ""}: it would sit in your top three` : `Re-order your roles: ${list(moved.slice(0, 2))} moved up on what you can show`,
     reasons,
     facts: outlook.filter((o) => o.target || eligible.includes(o)).map(outlookFact),
     mayAdd: eligible.slice(0, 2).map((o) => o.role),
@@ -268,10 +271,13 @@ export const sameOrder = (a: readonly string[], b: readonly string[]) => a.lengt
  */
 export function acceptJudgment(draft: RoleProposalDraft, judged: { order: string[]; headline: string; reasons: RoleReason[] }): RoleProposalDraft | null {
   const order = judged.order.map((r) => r.trim());
-  const added = order.filter((r) => !draft.base.includes(r));
+  let added = order.filter((r) => !draft.base.includes(r));
   if (new Set(order).size !== order.length) return null;
   if (!draft.base.every((r) => order.includes(r))) return null;
   if (added.length > 1 || !added.every((r) => draft.mayAdd.includes(r))) return null;
+  // At most five roles: an add on a full list drops whichever role the model put last.
+  order.splice(MAX_ROLES);
+  added = added.filter((r) => order.includes(r));
   const kept = order.filter((r) => draft.base.includes(r));
   const moved = kept.filter((r, i) => i < draft.base.indexOf(r));
   const reasons = judged.reasons.filter((x) => order.includes(x.role) && x.why.trim().length >= 10).map((x) => ({ role: x.role, why: x.why.replace(/\s+/g, " ").trim().slice(0, 320) }));
@@ -296,7 +302,7 @@ export interface RoleProposal {
   writer: "model" | "rules";
   /**
    * new: waiting on you. approved: written to Notion. dismissed: you said no. stale: your
-   * order changed before you decided. declined: the Mentor's own judgment was to leave your
+   * order changed before you decided. declined: the Career Mentor's own judgment was to leave your
    * order alone, kept so the same question is not asked again every morning.
    */
   status: "new" | "approved" | "dismissed" | "stale" | "declined";
@@ -309,7 +315,7 @@ export type NewRoleProposal = Omit<RoleProposal, "id" | "createdAt" | "status" |
 /** After you approve an order it is left alone for a week; one you turned down is not raised again for three. */
 export const APPROVED_REST_DAYS = 7;
 export const DISMISSED_REST_DAYS = 21;
-/** When the Mentor itself judged "no change", it does not reconsider the same order for a week. */
+/** When the Career Mentor itself judged "no change", it does not reconsider the same order for a week. */
 export const DECLINED_REST_DAYS = 7;
 
 /**
@@ -324,26 +330,4 @@ export function worthProposing(draft: Pick<RoleProposalDraft, "base" | "order">,
   if (prior.some((p) => p.status === "dismissed" && sameOrder(p.proposed, draft.order) && daysBetween(p.forDate, today) < DISMISSED_REST_DAYS)) return false;
   if (prior.some((p) => p.status === "declined" && sameOrder(p.proposed, draft.order) && daysBetween(p.forDate, today) < DECLINED_REST_DAYS)) return false;
   return true;
-}
-
-/**
- * The priority numbers to write to Notion for an approved order. Roles take the numbers
- * your roles already use, lowest first, so rows that are not roles (the Master Resume)
- * keep theirs. A role being added has no row yet: it is listed with the number it gets.
- */
-export function priorityPlan(rows: readonly { name: string; priority: number | null; master: boolean }[], approved: readonly string[]): { set: { name: string; priority: number }[]; create: { name: string; priority: number }[] } {
-  const key = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
-  const roles = rows.filter((r) => !r.master);
-  const taken = new Set(rows.filter((r) => r.master && r.priority !== null).map((r) => r.priority!));
-  const start = Math.min(...roles.map((r) => r.priority ?? Infinity), Infinity);
-  const numbers: number[] = [];
-  for (let n = Number.isFinite(start) ? start : 1; numbers.length < approved.length; n++) if (!taken.has(n)) numbers.push(n);
-  const set: { name: string; priority: number }[] = [];
-  const create: { name: string; priority: number }[] = [];
-  approved.forEach((name, i) => {
-    const row = roles.find((r) => key(r.name) === key(name));
-    if (!row) create.push({ name, priority: numbers[i]! });
-    else if (row.priority !== numbers[i]) set.push({ name: row.name, priority: numbers[i]! });
-  });
-  return { set, create };
 }

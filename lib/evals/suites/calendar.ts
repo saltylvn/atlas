@@ -84,7 +84,6 @@ const cases: EvalCase[] = [
     name: `Kind · ${title}`,
     expected,
     actual: () => classifyEvent(title) ?? "routine",
-    ...(title.includes("Dr Pepper") ? { knownGap: "\"Dr\" is read as doctor. Rules can't tell a soda from a physician without a list of exceptions." } : {}),
   })),
   ...CALENDARS.map(([name, feed, from, to, expected]): EvalCase => ({
     name: `Conflicts · ${name}`,

@@ -1,9 +1,11 @@
 "use client";
 
+import Link from "next/link";
 import type { ActionResult } from "@/app/actions/_shared";
 import { useActionState, useOptimistic, useTransition } from "react";
 import { saveSettings, setSwitch } from "@/app/actions/settings";
-import { TARGET_ROLES } from "@/lib/domain/targetRoles";
+import { SEARCH_DEFAULTS } from "@/lib/domain/searchProfile";
+import { BACKGROUND_DEFAULT, MAX_YEARS_DEFAULT } from "@/lib/domain/levelPolicy";
 import { NEWS_TOPICS, type Settings } from "@/lib/domain/types";
 
 type Result = ActionResult | null;
@@ -38,19 +40,22 @@ export function SettingsForm({ s }: { s: Settings }) {
         <Field name="jobLocations" label="Job locations (comma separated, include Remote)" value={s.jobLocations.join(", ")} />
       </div>
       <div id="career" className="sm:col-span-2">
-        <Field
-          name="careerRoles"
-          label="Target roles for the Applications Agent, in priority order (comma separated)"
-          value={(s.careerRoles?.length ? s.careerRoles : TARGET_ROLES.map((r) => r.name)).join(", ")}
-          hint={`${s.notion?.ok ? "Synced from the Resumes database in Notion: change the order there (edits here are replaced at the next sync). " : ""}Each built-in role also matches its usual titles, e.g. Solutions Engineer matches Solutions Architect and Sales Engineer.`}
-        />
+        <p className="text-sm text-ink-2">
+          Target roles and their order are set on{" "}
+          <Link href="/career/roles" className="font-medium text-brand hover:underline">
+            Target Roles
+          </Link>
+          .
+        </p>
       </div>
-      <Field name="careerMinSalary" label="Full-time salary floor (USD per year, 0 for none)" value={String(s.careerMinSalary ?? 0)} type="number" />
-      <Field name="careerMinRate" label="Gig rate floor (USD per hour, 0 for none)" value={String(s.careerMinRate ?? 0)} type="number" />
+      <Field name="careerMinSalary" label="Salary floor (USD per year, 0 for none)" value={String(s.careerMinSalary ?? SEARCH_DEFAULTS.salaryFloor)} type="number" hint="Posted pay that tops out under this is left out of your matches." />
+      <Field name="careerMaxYears" label="Most years of experience a job may ask for" value={String(s.careerMaxYears ?? MAX_YEARS_DEFAULT)} type="number" hint="Jobs asking for more than this, and senior titles, are ignored by every bot and agent, and cleared from Good fits and the Apply Queue each night. Raise it as you gain experience." />
+      <Field name="careerBackground" label="What you bring besides engineering" value={s.careerBackground ?? BACKGROUND_DEFAULT} hint="One sentence. The Tailor, the Researcher and the Career Mentor use it as your angle where a role values it. It is never counted as engineering years." />
+      <Field name="careerTargetSalary" label="Salary target (USD per year, 0 for none)" value={String(s.careerTargetSalary ?? SEARCH_DEFAULTS.salaryTarget)} type="number" hint="What you are aiming at. A posting that reaches it ranks higher and says so." />
       <div id="email" className="sm:col-span-2">
         <Field
           name="emailSubscriptions"
-          label="Subscriptions the Email Agent tracks (comma separated)"
+          label="Subscriptions the Email bot tracks (comma separated)"
           value={(s.emailSubscriptions ?? []).join(", ")}
           hint='Use "/" for one service with two names, e.g. Disney/Hulu. Notes in parentheses are ignored.'
           optional
@@ -61,7 +66,7 @@ export function SettingsForm({ s }: { s: Settings }) {
           name="emailStores"
           label="Stores and senders to keep (comma separated)"
           value={(s.emailStores ?? []).join(", ")}
-          hint="Never proposed for unsubscribing; the Finance Agent will watch their deals."
+          hint="Never proposed for unsubscribing; the Finance bot will watch their deals."
           optional
         />
       </div>
@@ -102,7 +107,7 @@ function Field({
   );
 }
 
-export function Switch({ name, on, label, hint, danger }: { name: "outboundEnabled" | "aiEnabled"; on: boolean; label: string; hint: string; danger?: boolean }) {
+export function Switch({ name, on, label, hint, danger }: { name: "outboundEnabled" | "aiEnabled" | "modelReader"; on: boolean; label: string; hint: string; danger?: boolean }) {
   const [, start] = useTransition();
   const [value, setValue] = useOptimistic(on);
   return (
@@ -122,7 +127,8 @@ export function Switch({ name, on, label, hint, danger }: { name: "outboundEnabl
             await setSwitch(name, !value);
           })
         }
-        className="relative h-7 w-12 shrink-0 rounded-full transition-colors"
+        // The pseudo-element makes the tap target 44px tall without growing the switch.
+        className="relative h-7 w-12 shrink-0 rounded-full transition-colors before:absolute before:-inset-y-2 before:inset-x-0 before:content-['']"
         style={{ background: value ? (danger ? "var(--c-green)" : "var(--brand-solid)") : "var(--line-strong)" }}
       >
         <span className={`absolute top-0.5 h-6 w-6 rounded-full bg-white shadow transition-all ${value ? "left-[22px]" : "left-0.5"}`} />

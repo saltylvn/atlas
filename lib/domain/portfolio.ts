@@ -45,6 +45,10 @@ export interface PortfolioRepo {
   stack: string[];
   /** Skills from the shared list (lib/domain/skills.ts) that this project demonstrates. */
   skills: string[];
+  /** The project's own name, from the README's top heading ("DEVELOP"), or "" when it has none or it is the repository name. */
+  title: string;
+  /** The opening of the README, cleaned: prose and headings, one item per line. Never code, images or HTML. */
+  readme: string;
   pushedAt: string | null;
   checkedOn: LocalDate;
   createdAt: string;
@@ -127,6 +131,71 @@ export function dependencyNames(path: string, text: string): string[] {
 
 const clip = (s: string, n: number) => s.replace(/\s+/g, " ").trim().slice(0, n);
 
+export const MAX_README = 4000;
+const MAX_TITLE = 120;
+
+/** Markdown inline formatting out of one line: links keep their text, images and badges go. */
+const inline = (l: string) =>
+  l
+    .replace(/\[!\[[^\]]*\]\([^)]*\)\]\([^)]*\)/g, "") // a badge: an image inside a link
+    .replace(/!\[[^\]]*\]\([^)]*\)/g, "") // an image
+    .replace(/\[([^\]]*)\]\([^)]*\)/g, "$1") // a link: its text
+    .replace(/<[^>]*>/g, "") // inline HTML
+    .replace(/`([^`]*)`/g, "$1")
+    .replace(/(\*\*|__|\*|_|~~)(?=\S)([^*_~]+?)(?<=\S)\1/g, "$2")
+    .replace(/\s+/g, " ")
+    .trim();
+
+/** README lines outside code blocks, with HTML comments and whole image or table blocks removed. */
+function proseLines(md: string): string[] {
+  const body = md
+    .replace(/\r\n?/g, "\n")
+    .replace(/<!--[\s\S]*?-->/g, "")
+    .replace(/<(picture|table|svg)\b[^>]*>[\s\S]*?<\/\1>/gi, "");
+  const out: string[] = [];
+  let fence: string | null = null;
+  for (const line of body.split("\n")) {
+    const mark = line.match(/^\s{0,3}(`{3,}|~{3,})/)?.[1];
+    if (mark) {
+      if (!fence) fence = mark[0]!;
+      else if (mark[0] === fence) fence = null;
+      continue;
+    }
+    if (!fence) out.push(line);
+  }
+  return out;
+}
+
+/**
+ * The README's opening as plain lines: headings and prose kept, code blocks, HTML, images,
+ * badges, tables and rules dropped. One item per line, so the index cuts passages between
+ * items. A README is the project's own words: treated as data wherever it is shown.
+ */
+export function cleanReadme(md: string): string {
+  let out = "";
+  for (const raw of proseLines(md)) {
+    if (/^\s*\|/.test(raw) || /^\s*[-=*_]{3,}\s*$/.test(raw)) continue;
+    const l = inline(raw.replace(/^\s{0,3}#{1,6}\s+/, "").replace(/^\s*>\s?/, "").replace(/^\s*(?:[-*+]|\d+[.)])\s+(?:\[[ xX]\]\s+)?/, ""));
+    if (!/[A-Za-z0-9]/.test(l)) continue;
+    if (out.length + l.length + 1 > MAX_README) break;
+    out += (out ? "\n" : "") + l;
+  }
+  return out;
+}
+
+const plainName = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, "");
+
+/** The project's own name: the README's first top-level heading, unless it only repeats the repository name. */
+export function readmeTitle(md: string, repoName: string): string {
+  const lines = proseLines(md);
+  const h1 = lines.map((l) => l.match(/^\s{0,3}#\s+(.+?)[\s#]*$/)?.[1]).find(Boolean) ?? lines.join("\n").match(/<h1\b[^>]*>([\s\S]*?)<\/h1>/i)?.[1] ?? "";
+  const title = inline(h1).replace(/[^\p{L}\p{N}\s.,:&()'+/-]/gu, "").replace(/\s+/g, " ").trim().slice(0, MAX_TITLE);
+  return title && plainName(title) !== plainName(repoName) ? title : "";
+}
+
+/** How a project is named everywhere: "DEVELOP (wellness-tracker)", or the repository name alone. */
+export const projectName = (r: Pick<PortfolioRepo, "title" | "name">): string => (r.title ? `${r.title} (${r.name})` : r.name);
+
 /** A repository as a portfolio entry: its stack and the skills it demonstrates. */
 export function describeRepo(raw: RawRepo, today: LocalDate): NewPortfolioRepo {
   const bytes = Object.values(raw.languages).reduce((n, b) => n + b, 0) || 1;
@@ -165,6 +234,8 @@ export function describeRepo(raw: RawRepo, today: LocalDate): NewPortfolioRepo {
     topics,
     stack: [...stack].sort().slice(0, 20),
     skills: extractSkills(text).slice(0, 30),
+    title: readmeTitle(raw.readme, raw.name),
+    readme: cleanReadme(raw.readme),
     pushedAt: raw.pushedAt,
     checkedOn: today,
   };

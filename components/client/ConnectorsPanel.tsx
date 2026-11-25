@@ -2,7 +2,7 @@
 
 import { useActionState, useEffect, useState, useTransition } from "react";
 import type { ActionResult } from "@/app/actions/_shared";
-import { connectGmailAppPassword, disconnectGmail, sendTestPush, subscribePush, syncNotionNow, testAiModel, unsubscribePush } from "@/app/actions/connectors";
+import { connectGmailAppPassword, disconnectGmail, disconnectGoogleCalendar, sendTestPush, subscribePush, syncNotionNow, testAiModel, unsubscribePush } from "@/app/actions/connectors";
 import { Icon } from "../Icon";
 
 /** One tiny call to the configured model, to confirm a new key works. */
@@ -49,6 +49,30 @@ export function SyncNotionButton({ label = "Sync now" }: { label?: string }) {
         <Icon name="refresh" size={14} /> {pending ? "Reading Notion…" : label}
       </button>
       {note && <span className={`text-xs ${note.ok ? "text-ink-2" : "text-bad"}`}>{note.text}</span>}
+    </div>
+  );
+}
+
+export function DisconnectCalendar() {
+  const [pending, start] = useTransition();
+  const [note, setNote] = useState("");
+  return (
+    <div className="flex items-center gap-2">
+      <button
+        type="button"
+        className="btn btn-ghost btn-sm"
+        disabled={pending}
+        onClick={() => {
+          if (!confirm("Disconnect Google Calendar? Atlas revokes its access at Google and deletes it. Your calendar itself is not touched.")) return;
+          start(async () => {
+            const r = await disconnectGoogleCalendar();
+            setNote(r.ok ? (r.message ?? "") : r.error);
+          });
+        }}
+      >
+        Disconnect
+      </button>
+      {note && <span className="text-xs text-ink-2">{note}</span>}
     </div>
   );
 }

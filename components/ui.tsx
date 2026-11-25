@@ -1,33 +1,36 @@
 import type { CSSProperties, ReactNode } from "react";
 import type { Area, Priority, TaskStatus } from "@/lib/domain/types";
 import { Icon, type IconName } from "./Icon";
+import { FoldDetails } from "./client/FoldDetails";
 
 export const STATUS_META: Record<TaskStatus, { label: string; color: string }> = {
   todo: { label: "Not started", color: "var(--c-grey)" },
-  doing: { label: "Working on it", color: "var(--c-orange)" },
+  doing: { label: "Working on it", color: "var(--c-warn)" },
   stuck: { label: "Stuck", color: "var(--c-red)" },
   done: { label: "Done", color: "var(--c-green)" },
 };
 
 export const PRIORITY_META: Record<Priority, { label: string; color: string }> = {
   critical: { label: "Critical", color: "var(--c-red)" },
-  high: { label: "High", color: "var(--c-orange)" },
-  medium: { label: "Medium", color: "var(--c-blue)" },
+  high: { label: "High", color: "var(--c-warn)" },
+  medium: { label: "Medium", color: "var(--c-indigo)" },
   low: { label: "Low", color: "var(--c-grey)" },
 };
 
 export const AREA_META: Record<Area, { label: string; color: string }> = {
   work: { label: "Work", color: "var(--c-blue)" },
-  career: { label: "Career", color: "var(--c-purple)" },
-  family: { label: "Family", color: "var(--c-pink)" },
+  career: { label: "Career", color: "var(--c-career)" },
+  family: { label: "Family", color: "var(--c-brown)" },
   health: { label: "Health", color: "var(--c-green)" },
-  home: { label: "Home", color: "var(--c-teal)" },
-  finance: { label: "Finance", color: "var(--c-orange)" },
+  home: { label: "Home", color: "var(--c-slate)" },
+  finance: { label: "Finance", color: "var(--c-grey)" },
   personal: { label: "Personal", color: "var(--c-indigo)" },
 };
 
 /** Sets the hue a `.pill` or `.tint` element is tinted with. */
-export const hue = (color: string) => ({ "--pc": color }) as CSSProperties;
+/** The pastel hues (System yellow, warning teal, and pink) need a deeper text mix to stay readable. */
+const PASTEL = /--c-(pink|system|yellow|connector|warn|teal)\)/;
+export const hue = (color: string) => ({ "--pc": color, ...(PASTEL.test(color) ? { "--pc-mix": "42%" } : {}) }) as CSSProperties;
 
 export function Pill({ color, children, className = "" }: { color: string; children: ReactNode; className?: string }) {
   return (
@@ -96,16 +99,28 @@ export function Meter({ value, max, color = "var(--brand)" }: { value: number; m
   );
 }
 
-export function PageHeader({ title, sub, action }: { title: string; sub?: ReactNode; action?: ReactNode }) {
+/**
+ * A page's title, its line of text and an action. `toggle` is a switch between views of the
+ * page: it always sits first, top left, so it stays in the same place whichever view is open.
+ */
+export function PageHeader({ title, sub, action, toggle }: { title: string; sub?: ReactNode; action?: ReactNode; toggle?: ReactNode }) {
   return (
-    <header className="mb-5 flex flex-wrap items-end justify-between gap-3">
-      <div>
-        <h1 className="h-display text-[1.7rem] font-medium leading-tight md:text-[2rem]">{title}</h1>
-        {sub && <p className="mt-1 text-sm text-ink-2">{sub}</p>}
+    <header className="mb-5">
+      {toggle && <ViewSwitchSlot>{toggle}</ViewSwitchSlot>}
+      <div className="flex flex-wrap items-end justify-between gap-3">
+        <div>
+          <h1 className="h-display text-[1.7rem] font-medium leading-tight md:text-[2rem]">{title}</h1>
+          {sub && <p className="mt-1 text-sm text-ink-2">{sub}</p>}
+        </div>
+        {action}
       </div>
-      {action}
     </header>
   );
+}
+
+/** Where a view toggle sits: the top left of the page, the same on every view. */
+export function ViewSwitchSlot({ children }: { children: ReactNode }) {
+  return <div className="mb-4 flex">{children}</div>;
 }
 
 export function Avatar({ initials, color, size = 36 }: { initials: string; color: string; size?: number }) {
@@ -128,4 +143,39 @@ export function timeAgo(iso: string | null, now: Date): string {
   const h = Math.round(min / 60);
   if (h < 36) return `${h}h ago`;
   return `${Math.round(h / 24)}d ago`;
+}
+
+/** A list longer than this starts folded. */
+export const FOLD_OVER = 4;
+
+/**
+ * A queue's list behind one Show / Hide bar. Folded by default when the list is long, so the
+ * page stays short; a short list starts open. `label` reads after the verb: "the 32 good fits".
+ * With `alert`, the list is waiting on you: the bar shows `alert` as an orange badge instead
+ * ("13 jobs to take action on"), so it catches the eye. Show and Hide are still read aloud.
+ * `alwaysOpen` starts it open however long it is (the Apply Queue, owner's request, 23 Nov 2026).
+ */
+export function QueueFold({ count, label, alert, alwaysOpen = false, children }: { count: number; label: string; alert?: string; alwaysOpen?: boolean; children: ReactNode }) {
+  return (
+    <FoldDetails defaultOpen={alwaysOpen || count <= FOLD_OVER} className="group/fold">
+      <summary className="flex min-h-[44px] cursor-pointer list-none items-center gap-2 text-sm font-medium text-ink-2 hover:text-ink [&::-webkit-details-marker]:hidden">
+        <Icon name="chevron" size={16} className="group-open/fold:rotate-180" />
+        {alert ? (
+          <>
+            <span className="sr-only group-open/fold:hidden">Show</span>
+            <span className="sr-only hidden group-open/fold:inline">Hide</span>
+            <Pill color="var(--c-warn)" className="!h-auto min-h-7 gap-1.5 whitespace-normal py-1 text-left text-sm">
+              <Icon name="alert" size={14} /> {alert}
+            </Pill>
+          </>
+        ) : (
+          <>
+            <span className="group-open/fold:hidden">Show {label}</span>
+            <span className="hidden group-open/fold:inline">Hide {label}</span>
+          </>
+        )}
+      </summary>
+      {children}
+    </FoldDetails>
+  );
 }

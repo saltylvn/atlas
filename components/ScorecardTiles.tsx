@@ -4,9 +4,9 @@ import { shortDate } from "@/lib/domain/dates";
 /** The week's job search at a glance: sent, replies, interviews, offers. */
 export function ScorecardTiles({ s }: { s: Scorecard }) {
   const tiles: [string, number, string][] = [
-    ["Sent", s.sent, "var(--c-blue)"],
-    ["Replies", s.replies, "var(--c-orange)"],
-    ["Interviews", s.interviews, "var(--c-purple)"],
+    ["Sent", s.sent, "var(--c-slate)"],
+    ["Replies", s.replies, "var(--c-warn)"],
+    ["Interviews", s.interviews, "var(--c-indigo)"],
     ["Offers", s.offers, "var(--c-green)"],
   ];
   return (
@@ -24,6 +24,11 @@ export function ScorecardTiles({ s }: { s: Scorecard }) {
       <p className="mt-2 text-xs text-ink-3">
         {shortDate(s.from)} – {shortDate(s.to)} · {s.rejections} rejection{s.rejections === 1 ? "" : "s"} · {s.open} open · {s.responseRate}% response rate overall
       </p>
+      {s.method && s.method.atlas.sent > 0 && (
+        <p className="mt-1 text-xs text-ink-3">
+          By who applied, all time: Atlas {s.method.atlas.sent} sent, {s.method.atlas.answered} answered · You {s.method.you.sent} sent, {s.method.you.answered} answered
+        </p>
+      )}
     </div>
   );
 }

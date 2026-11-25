@@ -9,10 +9,12 @@ import * as afternoon from "@/app/api/cron/afternoon/route";
 import * as evening from "@/app/api/cron/evening/route";
 import * as morning from "@/app/api/cron/morning/route";
 import * as qa from "@/app/api/cron/qa/route";
+import * as night from "@/app/api/cron/night/route";
 import * as sync from "@/app/api/cron/sync/route";
+import * as watch from "@/app/api/cron/watch/route";
 import * as keepalive from "@/app/api/keepalive/route";
 
-// The seven machine endpoints themselves, called the way the scheduler, the Shortcut and a
+// The eight machine endpoints themselves, called the way the scheduler, the Shortcut and a
 // stranger would call them: a missing or wrong token answers 401 at once, and leaves a
 // record afterwards. The database is the in-memory store; the tokens are made up here.
 
@@ -22,7 +24,7 @@ const h = vi.hoisted(() => ({
   /** What the platform's after() does with a task. Null: there is no request scope, as in any test. */
   after: null as null | ((task: () => Promise<void>) => void),
   /** The value each route expects, made up here: forty of one letter. */
-  right: { cron: "c".repeat(40), keepalive: "k".repeat(40), capture: "s".repeat(40) },
+  right: { cron: "c".repeat(40), keepalive: "k".repeat(40), capture: "s".repeat(40), watch: "t".repeat(40) },
 }));
 
 vi.mock("@/lib/env", () => ({
@@ -31,6 +33,7 @@ vi.mock("@/lib/env", () => ({
     CRON_SECRET: h.right.cron,
     ATLAS_KEEPALIVE_TOKEN: h.right.keepalive,
     ATLAS_CAPTURE_TOKEN: h.right.capture,
+    ATLAS_WATCH_SECRET: h.right.watch,
   }),
   mode: () => (h.live ? "live" : "demo"),
 }));
@@ -59,7 +62,9 @@ const ROUTES: { path: MachineRoute; method: "GET" | "POST"; handler: Handler; ex
   { path: "/api/cron/afternoon", method: "GET", handler: afternoon.GET, expects: "cron" },
   { path: "/api/cron/evening", method: "GET", handler: evening.GET, expects: "cron" },
   { path: "/api/cron/qa", method: "GET", handler: qa.GET, expects: "cron" },
+  { path: "/api/cron/night", method: "GET", handler: night.GET, expects: "cron" },
   { path: "/api/cron/sync", method: "GET", handler: sync.GET, expects: "cron" },
+  { path: "/api/cron/watch", method: "POST", handler: watch.POST, expects: "watch" },
 ];
 const WRONG = `Bearer wrong-${"w".repeat(34)}`;
 
@@ -88,7 +93,7 @@ afterEach(() => {
 });
 
 describe("A refused token on a machine endpoint", () => {
-  it("the list of machine routes is the seven routes exercised here", () => {
+  it("the list of machine routes is the nine routes exercised here", () => {
     expect(ROUTES.map((r) => r.path).sort()).toEqual([...MACHINE_ROUTES].sort());
   });
 
@@ -151,6 +156,22 @@ describe("A refused token on a machine endpoint", () => {
     expect(errors.mock.calls.filter((c) => c[0] === "[audit] refused tokens not recorded yet:").map((c) => c[1]).sort()).toEqual(ROUTES.map((r) => `1 refused at ${r.path}: 0 no token, 1 wrong token`).sort());
     expect(errors).toHaveBeenCalledTimes(ROUTES.length * 2);
     for (const leaked of ["wrong-", "Bearer", "probe/1.0", "203.0.113.9", "in-the-query", "hello"]) expect(JSON.stringify(errors.mock.calls), leaked).not.toContain(leaked);
+  });
+
+  it("the watch has its own secret: the scheduler's does not open it, and its own opens no other route", async () => {
+    const watchRoute = ROUTES.find((r) => r.path === "/api/cron/watch")!;
+    expect((await call(watchRoute, `Bearer ${h.right.cron}`)).status).toBe(401);
+    for (const r of ROUTES.filter((x) => x !== watchRoute)) expect((await call(r, `Bearer ${h.right.watch}`)).status, r.path).toBe(401);
+    // Set to the same value as CRON_SECRET, the watch refuses to run at all.
+    const own = h.right.watch;
+    h.right.watch = h.right.cron;
+    try {
+      const res = await call(watchRoute, `Bearer ${h.right.cron}`);
+      expect(res.status).toBe(503);
+      expect(await res.json()).toEqual({ error: "not configured" });
+    } finally {
+      h.right.watch = own;
+    }
   });
 
   it("checks the token before it says anything else, and does not record a right one", async () => {

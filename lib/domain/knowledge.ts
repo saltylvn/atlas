@@ -14,6 +14,8 @@
 // indexed can never reach a model.
 
 import { localDate } from "./dates";
+import { shownHow } from "./moreMatches";
+import { projectName, type PortfolioRepo } from "./portfolio";
 import type { Application, Contact, Goal, InboxItem, JobMatch, Project, Renewal, StoredBrief, Task } from "./types";
 
 export const KNOWLEDGE_SOURCES = ["brief", "email", "person", "task", "goal", "project", "application", "job", "renewal", "resume"] as const;
@@ -73,6 +75,8 @@ export interface KnowledgeSnapshot {
   tasks?: Task[];
   goals?: Goal[];
   projects?: Project[];
+  /** Your GitHub projects as the Scout last read them. Only public ones are indexed. */
+  portfolio?: PortfolioRepo[];
   applications?: Application[];
   jobMatches?: JobMatch[];
   renewals?: Renewal[];
@@ -151,11 +155,18 @@ export function toDocuments(s: KnowledgeSnapshot, timeZone: string): KnowledgeDo
   for (const p of newest(s.projects, (r) => r.createdAt, SOURCE_LIMIT.project)) {
     add("project", p.id, `Project: ${p.title}`, line(`${p.kind}, ${p.status}.`, p.why && `Why: ${p.why}`, p.nextStep && `Next step: ${p.nextStep}`, p.reviewOn && `Review on ${p.reviewOn}.`), p.createdAt);
   }
+  // Public GitHub projects, as proof of what you have built. A private repository may hold
+  // client work, so it never reaches the index (or Claude through it).
+  for (const r of newest(s.portfolio?.filter((x) => !x.isPrivate), (x) => x.pushedAt ?? x.createdAt, SOURCE_LIMIT.project)) {
+    const list = (label: string, xs: readonly string[]) => xs.length > 0 && `${label}: ${xs.join(", ")}.`;
+    const facts = line(r.description && (/[.!?]$/.test(r.description) ? r.description : `${r.description}.`), list("Built with", r.stack), list("Languages", r.languages), list("Skills shown", r.skills), list("Topics", r.topics), r.pushedAt && `Last worked on ${day(r.pushedAt)}.`);
+    add("project", `repo:${r.repo}`, `Project: ${projectName(r)} on GitHub`, `${facts} ${sentences(r.readme ?? "")}`, r.pushedAt ?? r.createdAt, "/growth");
+  }
   for (const a of newest(s.applications, (r) => r.statusAt, SOURCE_LIMIT.application)) {
-    add("application", a.id, `Application: ${a.role} at ${a.company}`, line(`Status: ${a.status} since ${day(a.statusAt)}.`, a.appliedOn ? `Applied ${a.appliedOn}.` : "", `${a.type === "gig" ? "Contract or gig" : "Full-time"}.`, a.targetRole && `Target role: ${a.targetRole}.`, a.payText && `Pay: ${a.payText}.`, a.source && `Found on ${a.source}.`, a.notes && `Notes: ${a.notes}`), a.statusAt);
+    add("application", a.id, `Application: ${a.role} at ${a.company}`, line(`Status: ${a.status} since ${day(a.statusAt)}.`, a.appliedOn ? `Applied ${a.appliedOn}.` : "", a.targetRole && `Target role: ${a.targetRole}.`, a.payText && `Pay: ${a.payText}.`, a.source && `Found on ${a.source}.`, a.notes && `Notes: ${a.notes}`), a.statusAt);
   }
   for (const j of newest(s.jobMatches, (r) => r.shownOn, SOURCE_LIMIT.job)) {
-    add("job", j.key || j.id, `Job match: ${j.title} at ${j.company}`, line(`Shown ${j.shownOn} in the ${j.shownSlot} brief.`, j.location && `Location: ${j.location}.`, j.role && `Matches your target role ${j.role}.`, j.payText && `Pay: ${j.payText}.`, j.source && `Source: ${j.source}.`, j.skills?.length ? `Skills: ${j.skills.join(", ")}.` : "", `Status: ${j.status}.`, j.rating > 0 ? "You liked it." : j.rating < 0 ? "You passed on it." : ""), j.postedAt ?? j.createdAt);
+    add("job", j.key || j.id, `Job match: ${j.title} at ${j.company}`, line(`Shown ${j.shownOn} ${shownHow(j.shownSlot)}.`, j.location && `Location: ${j.location}.`, j.role && `Matches your target role ${j.role}.`, j.payText && `Pay: ${j.payText}.`, j.source && `Source: ${j.source}.`, j.skills?.length ? `Skills: ${j.skills.join(", ")}.` : "", `Status: ${j.status}.`, j.rating > 0 ? "You liked it." : j.rating < 0 ? "You passed on it." : ""), j.postedAt ?? j.createdAt);
   }
   for (const r of newest(s.renewals, (x) => x.dueOn, SOURCE_LIMIT.renewal)) {
     add("renewal", r.id, `${r.kind === "bill" ? "Bill" : r.kind === "document" ? "Document" : "Renewal"}: ${r.title}`, line(`Due ${r.dueOn}.`, r.cadence === "once" ? "One time." : `Repeats ${r.cadence}.`, "Tracked under bills and renewals.", r.notes && `Notes: ${r.notes}`), null);

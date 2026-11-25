@@ -1,5 +1,5 @@
 import "server-only";
-import webpush from "web-push";
+import { sendNotification } from "web-push";
 import type { Store } from "@/lib/data/store";
 import { env } from "@/lib/env";
 
@@ -52,7 +52,7 @@ export async function sendToAll(store: Store, payload: PushPayload): Promise<{ s
         return;
       }
       try {
-        await webpush.sendNotification({ endpoint: s.endpoint, keys: { p256dh: s.p256dh, auth: s.auth } }, body, {
+        await sendNotification({ endpoint: s.endpoint, keys: { p256dh: s.p256dh, auth: s.auth } }, body, {
           vapidDetails: { subject: `mailto:${e.ATLAS_OWNER_EMAIL}`, publicKey: e.VAPID_PUBLIC_KEY!, privateKey: e.VAPID_PRIVATE_KEY! },
           TTL: 4 * 3600,
           urgency: "normal",

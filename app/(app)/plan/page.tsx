@@ -40,11 +40,11 @@ export default async function PlanPage() {
       .map((d, i) => ({
         key: d,
         title: i === 0 ? `Today · ${shortDate(d)}` : d === addDays(today, 1) ? `Tomorrow · ${shortDate(d)}` : shortDate(d),
-        color: i === 0 ? "var(--brand)" : "var(--c-blue)",
+        color: i === 0 ? "var(--brand)" : "var(--c-daily)",
         tasks: open.filter((t) => t.day === d),
         capacity: capacityFor(d, settings.dailyCapacityMin),
       })),
-    { key: "later", title: "Later", color: "var(--c-teal)", tasks: open.filter((t) => t.status !== "done" && t.day !== null && t.day > week[6]!) },
+    { key: "later", title: "Later", color: "var(--c-slate)", tasks: open.filter((t) => t.status !== "done" && t.day !== null && t.day > week[6]!) },
     { key: "backlog", title: "Backlog", color: "var(--c-grey)", tasks: open.filter((t) => t.day === null) },
   ];
 

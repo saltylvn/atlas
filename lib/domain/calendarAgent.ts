@@ -95,7 +95,7 @@ export interface CalendarAgentResult {
 
 const INTERVIEW = /\b(interview|phone screen|tech(nical)? screen|recruiter (call|chat|screen)|hiring manager)\b/i;
 const APPOINTMENT =
-  /\b(appt|appointment|doctor|dr\.?|dentist|dental|orthodontist|clinic|hospital|urgent care|therapy|therapist|chiropractor|optometrist|eye exam|dermatologist|pediatrician|vet|veterinarian|check-?up|physical|lab work|blood work|surgery|haircut|barber|dmv|court date|jury duty|notary)\b/i;
+  /\b(appt|appointment|doctor|dr\.?(?!\s*pepper)|dentist|dental|orthodontist|clinic|hospital|urgent care|therapy|therapist|chiropractor|optometrist|eye exam|dermatologist|pediatrician|vet|veterinarian|check-?up|physical|lab work|blood work|surgery|haircut|barber|dmv|court date|jury duty|notary)\b/i;
 
 /** Rules-based tagging: no model call, so the Calendar Agent costs nothing to run. */
 export function classifyEvent(title: string): ImportantKind | null {
@@ -109,7 +109,7 @@ export function classifyEvent(title: string): ImportantKind | null {
 
 /** Timed, busy events that overlap. Events marked "Free" in Google Calendar never conflict. */
 export function findConflicts(events: CalendarEvent[], timeZone: string): string[] {
-  const timed = events.filter((e) => !e.allDay && !e.free).sort((a, b) => a.start.localeCompare(b.start));
+  const timed = events.filter((e) => !e.allDay && !e.free && !e.declined).sort((a, b) => a.start.localeCompare(b.start));
   const out: string[] = [];
   for (let i = 0; i < timed.length; i++) {
     for (let j = i + 1; j < timed.length; j++) {

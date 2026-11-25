@@ -92,3 +92,4 @@ Each agent activity adds a conservative minutes-saved estimate (`MINUTES_SAVED`)
 - New outbound host: add it to `ALLOWED_HOSTS` in `lib/security/safeFetch.ts` (reviewed in one place).
 - New kind of record that Ask Atlas should know: a case in `toDocuments` (`lib/domain/knowledge.ts`), the source name in the migration's check, and an eval question.
 - New AI use: a schema + prompt in `lib/ai/prompts.ts`, gated by `takeAiCall`, with an offline fallback.
+- Anything that moves an application: write the row, then append an event to its timeline (`store.applicationEvents`, built with `stageEvent` or `ownEvent` from `lib/domain/pipeline.ts`). Where an application stands is decided in one place, `applyEvent`; see [design-pipeline.md](design-pipeline.md).

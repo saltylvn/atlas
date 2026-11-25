@@ -10,7 +10,7 @@ import { Icon } from "../Icon";
 import { Pill } from "../ui";
 
 const GOOD = "var(--c-green)";
-const WARN = "var(--c-orange)";
+const WARN = "var(--c-warn)";
 const GREY = "var(--c-grey)";
 
 const EXAMPLES = ["What needs a reply from me?", "Which applications are waiting on a response?", "What bills are due soon?", "What did this morning's brief say?"];

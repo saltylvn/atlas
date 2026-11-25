@@ -25,17 +25,45 @@
 
   --c-green: #30a46c;
   --c-orange: #f76b15;
+  --c-yellow: #f2cf5b;
   --c-red: #e5484d;
   --c-purple: #8e4ec6;
   --c-blue: #0090ff;
-  --c-pink: #d6409f;
-  --c-teal: #12a594;
+  --c-pink: #f09ac2;
+  --c-teal: #7ccfc2;
   --c-indigo: #3e63dd;
+  --c-slate: #5b6b85;
+  --c-brown: #9a6b4a;
   --c-grey: #8d8d8d;
   --c-dark: #3a3a3a;
 
-  --warn-bg: color-mix(in oklab, #f76b15 10%, var(--surface));
-  --warn-ink: #9a3f07;
+  /*
+   * What each color means, everywhere in Atlas (owner's choice, 24 Nov 2026). Use these names,
+   * not the hues, so a meaning changes in one place:
+   *   Daily desk and its bots      blue        Career desk and its bots   orange
+   *   Data                          grey        AI: model judgment, Gemini, the AI agents   purple
+   *   System design, connectors, MCP   yellow   QA red · errors red · warnings and "needs you" teal · done green
+   * Indigo, slate, brown and pink are neutral: for categories that mean none of these (grey is Data).
+   */
+  --c-daily: var(--c-blue);
+  --c-career: var(--c-orange);
+  --c-data: var(--c-grey);
+  --c-ai: var(--c-purple);
+  --c-system: var(--c-yellow);
+  --c-connector: var(--c-system);
+  --c-warn: var(--c-teal);
+  /*
+   * Yellow and teal are pastel (owner's choice, 24 Nov 2026): soft for fills, outlines and
+   * badges, too light for text. Text in them uses these deeper shades of the same hue.
+   */
+  --c-ai-ink: color-mix(in oklab, var(--c-ai) 45%, var(--ink));
+  --c-system-ink: color-mix(in oklab, var(--c-system) 40%, var(--ink));
+  --c-warn-ink: color-mix(in oklab, var(--c-warn) 42%, var(--ink));
+  /* QA, the quality checks on Atlas itself: its own section, in red (owner's choice, 24 Nov 2026). */
+  --c-qa: var(--c-red);
+
+  --warn-bg: color-mix(in oklab, #7ccfc2 20%, var(--surface));
+  --warn-ink: #0b6b60;
   --glow: color-mix(in oklab, #3ecf8e 9%, transparent);
   --shadow: none;
   --radius: 12px;
@@ -60,16 +88,19 @@
     --ink-3: #7c7c7c;
     --c-green: #3ecf8e;
     --c-orange: #ff801f;
+    --c-yellow: #f6d870;
     --c-red: #ec5d5e;
     --c-purple: #9a5cd0;
     --c-blue: #3b9eff;
-    --c-pink: #de51a8;
-    --c-teal: #0eb39e;
+    --c-pink: #f5b0d1;
+    --c-teal: #8fdccf;
     --c-indigo: #5472e4;
+    --c-slate: #8b9ab3;
+    --c-brown: #c49a78;
     --c-grey: #6f6f6f;
     --c-dark: #b4b4b4;
-    --warn-bg: color-mix(in oklab, #ff801f 12%, var(--surface));
-    --warn-ink: #ffa057;
+    --warn-bg: color-mix(in oklab, #8fdccf 12%, var(--surface));
+    --warn-ink: #8fdccf;
     --glow: color-mix(in oklab, #3ecf8e 7%, transparent);
     color-scheme: dark;
   }
@@ -89,7 +120,7 @@
   --color-ink-2: var(--ink-2);
   --color-ink-3: var(--ink-3);
   --color-good: var(--c-green);
-  --color-warn: var(--c-orange);
+  --color-warn: var(--c-warn);
   --color-bad: var(--c-red);
   --font-sans: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
   --font-display: var(--font-manrope), var(--font-inter), ui-sans-serif, system-ui, sans-serif;
@@ -130,6 +161,10 @@ textarea {
   }
   .card-pad {
     padding: 1.1rem 1.15rem;
+  }
+  /* A connector or MCP component: an orange outline, nothing inside (owner's choice, 24 Nov 2026). */
+  .card-connector {
+    border: 2px solid var(--c-connector);
   }
   /* The featured card: a hairline emerald border and a soft glow from one corner. */
   .card-brand {
@@ -226,7 +261,7 @@ textarea {
     border-radius: 999px;
     border: 1px solid color-mix(in oklab, var(--pc) 35%, transparent);
     background: color-mix(in oklab, var(--pc) 13%, transparent);
-    color: color-mix(in oklab, var(--pc) 70%, var(--ink));
+    color: color-mix(in oklab, var(--pc) var(--pc-mix, 70%), var(--ink));
     font-size: 0.74rem;
     font-weight: 500;
     white-space: nowrap;
@@ -236,7 +271,7 @@ textarea {
     --pc: var(--c-grey);
     border: 1px solid color-mix(in oklab, var(--pc) 35%, transparent);
     background: color-mix(in oklab, var(--pc) 16%, var(--surface));
-    color: color-mix(in oklab, var(--pc) 70%, var(--ink));
+    color: color-mix(in oklab, var(--pc) var(--pc-mix, 70%), var(--ink));
   }
   .chip {
     display: inline-flex;

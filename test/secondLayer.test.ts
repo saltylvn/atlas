@@ -147,13 +147,13 @@ describe("A refused token on a machine endpoint leaves a trace", () => {
 
   it("the list of machine routes is every API route behind a bearer token", () => {
     const gated = walk("app/api")
-      .filter((f) => f.endsWith("route.ts") && /bearerMatches\(|handleCron\(|handleSync\(/.test(read(f)))
+      .filter((f) => f.endsWith("route.ts") && /bearerMatches\(|handleCron\(|handleSync\(|handleWatch\(/.test(read(f)))
       .map((f) => `/${f.replace(/^app\//, "").replace(/\/route\.ts$/, "")}`);
     expect(gated.sort()).toEqual([...MACHINE_ROUTES].sort());
   });
 
   it("every place that refuses a token records the refusal before it answers 401", () => {
-    expect(refusals.map((r) => r.file).sort()).toEqual(["app/api/capture/route.ts", "app/api/keepalive/route.ts", "lib/agents/cron.ts", "lib/agents/sync.ts"]);
+    expect(refusals.map((r) => r.file).sort()).toEqual(["app/api/capture/route.ts", "app/api/keepalive/route.ts", "lib/agents/cron.ts", "lib/agents/sync.ts", "lib/agents/watch.ts"]);
     for (const r of refusals) {
       expect(r.block, r.file).toMatch(/noteRefusedToken\((?:"\/api\/[a-z/]+"|`\/api\/cron\/\$\{wanted\}`), request\.headers\.get\("authorization"\)\);/);
       // The route is a fixed path from the list, never one read from the request.
@@ -198,7 +198,7 @@ describe("A refused token on a machine endpoint leaves a trace", () => {
     const src = code("lib/security/refusedToken.ts");
     expect(src).toContain("export const REFUSED_WINDOW_MS = 10 * 60_000;");
     expect(src).toContain("if (now - slot.opened < REFUSED_WINDOW_MS) return;");
-    expect(src).toContain("if (!MACHINE_ROUTES.includes(route) || !deps.ready()) return;");
+    expect(src).toContain("if (!TOKEN_ROUTES.includes(route) || !deps.ready()) return;");
     expect(src).toContain("after(task);");
     // The only write is the audit helper's insert: the trail stays append-only.
     expect(src).not.toMatch(/\.update\(|\.delete\(|\.upsert\(|\.from\(/);
@@ -210,7 +210,7 @@ describe("A refused token on a machine endpoint leaves a trace", () => {
     expect(sql).toContain("outcome text not null check (outcome in ('success', 'denied', 'error'))");
   });
 
-  it("the QA Agent reads the records by rules: the route, the time and the counts", () => {
+  it("the QA bot reads the records by rules: the route, the time and the counts", () => {
     const agent = read("lib/agents/qa.ts");
     expect(agent).toContain("byAction(TOKEN_REFUSED, since)");
     expect(agent).toContain("rows.map((r) => ({ at: r.at, target: r.target, detail: r.detail }))");

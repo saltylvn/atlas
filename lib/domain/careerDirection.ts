@@ -1,6 +1,6 @@
 // Tyler's career direction: advice from Fable (13 November 2026), kept here so Atlas, the
 // Career Agent and the Target roles tab all work from the same reference. Tyler sets the
-// priority order of his own roles in Notion (targetRoles.ts is the fallback); this file
+// order of his own roles in Atlas (Target Roles; targetRoles.ts is the default); this file
 // says how the market ranks and names that work, and what to showcase.
 // The numbers come mostly from recruiters and vendors: directional, not exact.
 
@@ -52,7 +52,7 @@ export const CAREER_DIRECTION = {
       alsoCalled: ["Agentic AI Engineer"],
       why: "The pure builder version of what you've done. It tops Second Talent's 2026 list of fastest-growing roles.",
       tip: "Lead with Atlas: a supervisor agent routing work to specialists, each with its own tools and logs.",
-      mapsTo: "AI Workflow Engineer",
+      mapsTo: "AI Automation Engineer",
       sources: [{ label: "Second Talent report", url: "https://lifestyle.kbew98country.com/story/220742/10-new-ai-roles-that-didnt-exist-3-years-ago-second-talents-2026-report/" }],
     },
     {
@@ -60,7 +60,7 @@ export const CAREER_DIRECTION = {
       title: "AI Solutions Engineer",
       alsoCalled: ["Implementation", "Internal solutions"],
       why: "The title hides pre-sales, forward-deployed and internal jobs; senior hires are priced at $190K–$260K.",
-      tip: "Read each posting and skip the demo-only ones. The Career Agent ranks demo-heavy pre-sales postings well below the rest.",
+      tip: "Read each posting and skip the demo-only ones. The Applications bot ranks demo-heavy pre-sales postings well below the rest.",
       mapsTo: "Solutions Engineer",
       sources: [{ label: "KORE1", url: "https://www.kore1.com/hire-ai-solutions-engineers-2026/" }],
     },
@@ -70,7 +70,7 @@ export const CAREER_DIRECTION = {
       alsoCalled: ["Internal AI Engineer"],
       why: "Your \"automations to save time\" pitch, inside one company. Steadier demand: about 194 new US postings a week, most of them junior and mid-level roles.",
       tip: "Bring numbers: hours saved per week, steps removed, cost per run.",
-      mapsTo: "AI + Automation Engineer",
+      mapsTo: "AI Automation Engineer",
       sources: [{ label: "Axial Search", url: "https://axialsearch.com/insights/intelligent-automation-job-demand" }],
     },
     {
@@ -79,7 +79,7 @@ export const CAREER_DIRECTION = {
       alsoCalled: ["Go-to-market engineer"],
       why: "If you like revenue systems (CRM, enrichment, outbound): a $127.5K median across 1,000+ postings and 205% job growth.",
       tip: "Serious postings ask for API integration, SQL and end-to-end pipeline ownership. Lead with the integrations and data model behind Atlas.",
-      mapsTo: "GTM Engineer",
+      mapsTo: "AI Automation Engineer",
       sources: [
         { label: "Prospeo", url: "https://prospeo.io/s/gtm-engineering" },
         { label: "FirstSales", url: "https://firstsales.io/raw/gtm-engineer-role.md" },

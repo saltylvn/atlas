@@ -15,15 +15,18 @@ const PAIRS: [string, string, boolean, string?][] = [
   ["Musk's xAI raises $10 billion", "xAI raises $10bn in new funding round, Musk says", true],
   ["Senate passes government funding bill, averting shutdown", "Government shutdown averted as Senate passes funding bill", true],
   ["Anthropic releases Claude Opus 5 with longer memory", "Claude Opus 5 arrives: Anthropic's new model has longer memory", true],
-  ["Fed holds interest rates steady", "Federal Reserve leaves rates unchanged", true, "Different words for the same thing (\"Fed\" and \"Federal Reserve\", \"holds steady\" and \"unchanged\"). Keyword matching needs shared words."],
-  ["Biden signs executive order on AI safety", "White House issues AI safety order", true, "\"Biden\" and \"White House\" mean the same actor here; keyword matching can't know that."],
+  // Fixed 23 Nov 2026 by aliases ("Federal Reserve" is "Fed"; "holds rates steady" is "rates unchanged").
+  ["Fed holds interest rates steady", "Federal Reserve leaves rates unchanged", true],
+  // Fixed 23 Nov 2026: "AI" is kept as a key word, and "executive order" is an "order".
+  ["Biden signs executive order on AI safety", "White House issues AI safety order", true],
   // Different stories that share a name or a topic
   ["Apple unveils new iPhone", "Apple faces EU antitrust fine", false],
   ["OpenAI releases GPT-5.5 model", "Anthropic releases Claude Opus 5 model", false],
   ["Tesla recalls 200,000 vehicles over software glitch", "Tesla stock jumps after earnings beat", false],
   ["Google announces Gemini 3", "Google lays off hundreds in cloud unit", false],
   ["Supreme Court hears arguments on tariffs", "Supreme Court declines to take up gun case", false],
-  ["Microsoft earnings beat expectations on cloud growth", "Amazon earnings beat expectations on cloud growth", false, "Six of seven key words match; only the company differs."],
+  // Fixed 23 Nov 2026: near-identical headlines about a different lead subject are a template, not one story.
+  ["Microsoft earnings beat expectations on cloud growth", "Amazon earnings beat expectations on cloud growth", false],
   ["Trump meets Xi in Beijing", "Trump signs spending bill", false],
   ["Earthquake strikes central Japan", "Typhoon nears southern Japan", false],
   ["Meta unveils new smart glasses", "Meta fined by EU regulators", false],

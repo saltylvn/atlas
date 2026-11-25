@@ -11,6 +11,11 @@ describe("csp", () => {
     expect(csp).toContain("script-src 'self' 'nonce-abc' 'strict-dynamic'");
     expect(csp).not.toContain("unsafe-eval");
     expect(csp).toContain("frame-ancestors 'none'");
+    // The resume PDF is the one response Atlas's own page may frame; no other site ever may.
+    const framed = buildCsp({ nonce: "abc", isDev: false, framedBySelf: true });
+    expect(framed).toContain("frame-ancestors 'self'");
+    expect(framed).not.toContain("frame-ancestors 'none'");
+    expect(framed).not.toMatch(/frame-ancestors[^;]*(\*|https?:)/);
     expect(csp).toContain("object-src 'none'");
     expect(csp).toContain("connect-src 'self'");
   });
@@ -51,6 +56,9 @@ describe("access gate", () => {
   });
   it("keeps the public surface small", () => {
     expect(isPublicPath("/login")).toBe(true);
+    expect(isPublicPath("/privacy")).toBe(true);
+    expect(isPublicPath("/terms")).toBe(true);
+    expect(isPublicPath("/privacy/x")).toBe(false);
     expect(isPublicPath("/api/ingest/job-hunt")).toBe(false);
     expect(isPublicPath("/api/keepalive")).toBe(true);
     expect(isPublicPath("/api/keepalive/x")).toBe(false);

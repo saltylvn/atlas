@@ -8,24 +8,57 @@ import { saveJob, saveProfileText, setInsightStatus, syncResumesNow } from "@/ap
 import { decideRoleProposal, reviewRolesNow, scanGithubNow } from "@/app/actions/roles";
 import { Icon } from "../Icon";
 
-/** Done or Not useful, on one Mentor insight. A dismissed insight stays away for two weeks. */
+/**
+ * Action Taken or Not useful, on one Career Mentor insight. Checking Action Taken asks, in one
+ * optional line, what you did; saving clears the insight into today's actions taken, and the
+ * Career Mentor reads your line in its next reviews. A dismissed insight stays away for two weeks.
+ */
 export function InsightButtons({ id }: { id: string }) {
   const [pending, start] = useTransition();
   const [error, setError] = useState("");
-  const set = (status: "done" | "dismissed") =>
+  const [taken, setTaken] = useState(false);
+  const [note, setNoteText] = useState("");
+  const set = (status: "done" | "dismissed", text?: string) =>
     start(async () => {
-      const r = await setInsightStatus(id, status);
+      const r = await setInsightStatus(id, status, text);
       setError(r.ok ? "" : r.error);
     });
   return (
-    <div className="flex flex-wrap items-center gap-2">
-      <button type="button" className="btn btn-primary btn-sm min-h-[40px]" disabled={pending} onClick={() => set("done")}>
-        <Icon name="check" size={14} /> Done
-      </button>
-      <button type="button" className="btn btn-ghost btn-sm min-h-[40px]" disabled={pending} onClick={() => set("dismissed")}>
-        Not useful
-      </button>
-      {error && <span className="text-xs text-bad">{error}</span>}
+    <div className="space-y-2">
+      <div className="flex flex-wrap items-center gap-3">
+        <label className="inline-flex min-h-11 cursor-pointer items-center gap-2 text-sm font-medium">
+          <input type="checkbox" className="size-5 accent-[var(--brand)]" checked={taken} disabled={pending} onChange={(e) => setTaken(e.target.checked)} />
+          Action Taken
+        </label>
+        {!taken && (
+          <button type="button" className="btn btn-ghost btn-sm min-h-11" disabled={pending} onClick={() => set("dismissed")}>
+            Not useful
+          </button>
+        )}
+        {error && <span className="text-xs text-bad">{error}</span>}
+      </div>
+      {taken && (
+        <form
+          className="space-y-2"
+          onSubmit={(e) => {
+            e.preventDefault();
+            set("done", note);
+          }}
+        >
+          <label className="block">
+            <span className="mb-1 block text-xs text-ink-2">What did you do? (optional: the Career Mentor builds its next advice on it)</span>
+            <textarea className="field min-h-[72px]" maxLength={500} value={note} onChange={(e) => setNoteText(e.target.value)} placeholder="e.g. Added TypeScript to my Software Engineer resume and applied to 3 jobs" />
+          </label>
+          <div className="flex flex-wrap gap-2">
+            <button type="submit" className="btn btn-primary btn-sm min-h-11" disabled={pending}>
+              <Icon name="check" size={14} /> {pending ? "Saving…" : note.trim() ? "Save and clear" : "Clear without a note"}
+            </button>
+            <button type="button" className="btn btn-ghost btn-sm min-h-11" disabled={pending} onClick={() => setTaken(false)}>
+              Cancel
+            </button>
+          </div>
+        </form>
+      )}
     </div>
   );
 }
@@ -58,7 +91,7 @@ export function AskAgentButton({ agent, label, busy }: { agent: "scout" | "analy
   );
 }
 
-/** Your LinkedIn headline and About, pasted for the Mentor. Nothing is fetched from LinkedIn. */
+/** Your LinkedIn headline and About, pasted for the Career Mentor. Nothing is fetched from LinkedIn. */
 export function ProfileTextForm({ text }: { text: string }) {
   const [value, setValue] = useState(text);
   const [pending, start] = useTransition();
@@ -88,18 +121,14 @@ export function ProfileTextForm({ text }: { text: string }) {
   );
 }
 
-/** Save a job from a site with no public feed. It goes straight to the Approval Queue as an apply kit. */
+/** Save a job from a site with no public feed. It goes straight to the Apply Queue as an apply kit. */
 export function SaveJobForm() {
   const [state, action, pending] = useActionState(saveJob, null as ActionResult | null);
   return (
     <form action={action} className="grid gap-2 sm:grid-cols-2">
       <input name="url" type="url" required maxLength={600} placeholder="Link to the posting (https://…)" className="field text-base sm:col-span-2" />
       <input name="title" required minLength={3} maxLength={200} placeholder="Job title" className="field text-base" />
-      <input name="company" required maxLength={160} placeholder="Company or client" className="field text-base" />
-      <select name="type" className="field text-base sm:col-span-2" defaultValue="full-time" aria-label="Track">
-        <option value="full-time">Full-time role</option>
-        <option value="gig">Gig or contract (Upwork and others)</option>
-      </select>
+      <input name="company" required maxLength={160} placeholder="Company" className="field text-base" />
       <textarea name="description" rows={4} maxLength={8000} placeholder="Paste the description. Atlas reads the skills and pay from it; the text itself is not kept." className="field text-base sm:col-span-2" />
       <div className="flex flex-wrap items-center gap-3 sm:col-span-2">
         <button className="btn btn-primary min-h-[44px]" disabled={pending}>
@@ -171,14 +200,14 @@ function RunButton({ run, label, busy, icon = "refresh" }: { run: () => Promise<
   );
 }
 
-/** Asks the Mentor to review your role order now. */
-export const ReviewRolesButton = () => <RunButton run={reviewRolesNow} label="Ask the Mentor now" busy="Reviewing your roles…" icon="sparkle" />;
+/** Asks the Career Mentor to review your role order now. */
+export const ReviewRolesButton = () => <RunButton run={reviewRolesNow} label="Ask the Career Mentor now" busy="Reviewing your roles…" icon="sparkle" />;
 
 /** Reads your GitHub projects now. */
 export const ScanGithubButton = () => <RunButton run={scanGithubNow} label="Check GitHub now" busy="Reading GitHub…" />;
 
 /**
- * Approve or dismiss the Mentor's proposed role order. Approve says first exactly what it
+ * Approve or dismiss the Career Mentor's proposed role order. Approve says first exactly what it
  * will write, and asks once more: it changes your Notion database.
  */
 export function RoleProposalButtons({ id, writes }: { id: string; writes: string }) {
@@ -228,8 +257,8 @@ export function RoleProposalButtons({ id, writes }: { id: string; writes: string
 }
 
 /**
- * The Mentor's "Refresh and review": fresh postings from the Scout, your latest job emails,
- * a new market report from the Analyst, then the Mentor's review. Shows what changed; the
+ * The Career Mentor's "Refresh and review": fresh postings from the Scout, your latest job emails,
+ * a new market report from the Analyst, then the Career Mentor's review. Shows what changed; the
  * page then shows the updated insights.
  */
 export function RefreshMentorButton() {

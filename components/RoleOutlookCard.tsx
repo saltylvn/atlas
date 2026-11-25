@@ -8,7 +8,7 @@ const pct = (n: number) => `${Math.round(n * 100)}%`;
 const money = (n: number) => `$${Math.round(n / 1000)}k`;
 
 /**
- * The Mentor on your target roles: its open proposal (with the reasons, the facts behind
+ * The Career Mentor on your target roles: its open proposal (with the reasons, the facts behind
  * them and the approve button), and the Analyst's outlook for every role. Everything is
  * plain text: role names and reasons are never rendered as markup.
  */
@@ -19,7 +19,6 @@ export function RoleOutlookCard({
   evidence,
   reportDate,
   current,
-  writesToNotion,
 }: {
   /** The proposal waiting on you, if any. */
   proposal: RoleProposal | null;
@@ -29,22 +28,19 @@ export function RoleOutlookCard({
   evidence: { projects: number; skillsShown: number } | null;
   reportDate: string | null;
   current: string[];
-  writesToNotion: boolean;
 }) {
   const focus = proposal ? proposal.focus : current.slice(0, FOCUS);
   const targets = outlook.filter((o) => o.target);
   const candidates = outlook.filter((o) => !o.target && !o.thin).slice(0, 3);
   const writes = proposal
-    ? writesToNotion
-      ? `the Priority numbers of your role rows in the Notion Resumes database, so they read: ${proposal.proposed.join(", ")}.${proposal.added.length ? ` A new row is added for ${proposal.added.join(", ")}, with no resume yet.` : ""} No other row or column is touched.`
-      : `your role order in Atlas: ${proposal.proposed.join(", ")}.`
+    ? `your role order in Atlas: ${proposal.proposed.join(", ")}. Notion is not changed.`
     : "";
   return (
-    <section id="mentor-roles" className="card card-pad scroll-mt-20 border-l-4" style={{ borderLeftColor: "var(--c-purple)" }}>
+    <section id="mentor-roles" className="card card-pad scroll-mt-20 border-l-4" style={{ borderLeftColor: "var(--c-ai)" }}>
       <CardHeader
-        title="The Mentor on your roles"
+        title="The Career Mentor on your roles"
         icon="sparkle"
-        hint="Each morning the Mentor checks whether your role order still matches what you can show (your GitHub projects and resumes) and what the market asks for. It proposes; nothing changes until you approve."
+        hint="Each morning the Career Mentor checks whether your role order still matches what you can show (your GitHub projects and resumes) and what the market asks for. It proposes; nothing changes until you approve."
         // Remounted when a proposal opens or is decided, so its last message never outlives what it described.
         action={<ReviewRolesButton key={`${proposal ? "open" : "none"}:${last?.id ?? ""}:${last?.status ?? ""}`} />}
       />
@@ -53,7 +49,7 @@ export function RoleOutlookCard({
         <p className="eyebrow mb-1.5">{proposal ? "Target these three now (proposed)" : "Your three to target now"}</p>
         <div className="flex flex-wrap gap-1.5">
           {focus.map((r, i) => (
-            <Pill key={r} color="var(--c-purple)">
+            <Pill key={r} color="var(--c-ai)">
               {i + 1}. {r}
             </Pill>
           ))}
@@ -85,7 +81,7 @@ export function RoleOutlookCard({
                   return (
                     <li key={r} className={up || isNew ? "font-semibold" : "text-ink-2"}>
                       {r}
-                      {isNew && <span className="ml-1.5 text-xs font-medium text-[var(--c-purple)]">new</span>}
+                      {isNew && <span className="ml-1.5 text-xs font-medium text-[var(--c-ai-ink)]">new</span>}
                       {up && <span className="ml-1.5 text-xs font-medium text-[var(--c-green)]">moved up</span>}
                     </li>
                   );
@@ -121,13 +117,13 @@ export function RoleOutlookCard({
         <p className="text-sm text-ink-2">
           {last
             ? last.status === "approved"
-              ? `You approved a new order on ${shortDate(last.forDate)}. The Mentor leaves it alone for a week.`
+              ? `You approved a new order on ${shortDate(last.forDate)}. The Career Mentor leaves it alone for a week.`
               : last.status === "dismissed"
                 ? `You dismissed the last proposal (${shortDate(last.forDate)}). The same order is not raised again for three weeks.`
                 : last.status === "declined"
-                  ? `Reviewed ${shortDate(last.forDate)}: the Mentor judged that your order should stay as it is.`
+                  ? `Reviewed ${shortDate(last.forDate)}: the Career Mentor judged that your order should stay as it is.`
                   : `The last proposal (${shortDate(last.forDate)}) was set aside: your order changed, or you asked for a fresh review.`
-            : "No change is proposed. The Mentor only speaks up when a role clearly leads on what you can show."}
+            : "No change is proposed. The Career Mentor only speaks up when a role clearly leads on what you can show."}
         </p>
       )}
 
@@ -137,7 +133,7 @@ export function RoleOutlookCard({
           {evidence ? ` · measured against ${evidence.projects} GitHub project${evidence.projects === 1 ? "" : "s"} and your resumes (${evidence.skillsShown} skills shown)` : ""}
         </p>
         {targets.length === 0 ? (
-          <p className="text-sm text-ink-3">No outlook yet. The Analyst computes it with the next market report, or press Ask the Mentor now.</p>
+          <p className="text-sm text-ink-3">No outlook yet. The Analyst computes it with the next market report, or press Ask the Career Mentor now.</p>
         ) : (
           <ul className="divide-y divide-line">
             {[...targets, ...candidates].map((o) => (

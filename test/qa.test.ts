@@ -24,7 +24,7 @@ function demo(today = "2026-11-22", now = NOW): Context {
   return { mode: "demo", userId: "demo", store: createMemoryStore(state), settings: state.settings, now, today, time: "18:00" };
 }
 
-describe("The QA Agent's weekly review, end to end (demo)", () => {
+describe("The QA bot's weekly review, end to end (demo)", () => {
   it("reviews the week, saves one report for the day, and logs counts only", async () => {
     // The store stamps log rows with the real clock, so this review is of the real "today".
     const real = new Date();
@@ -113,7 +113,7 @@ describe("The QA Agent's weekly review, end to end (demo)", () => {
   });
 });
 
-describe("The QA Agent's place in Atlas", () => {
+describe("The QA bot's place in Atlas", () => {
   it("names the tasks it reads the way their owners write them", () => {
     expect(QA_EVAL_TASK).toBe(EVAL_TASK);
     expect(QA_AI_CHECK_TASK).toBe(AI_CHECK_TASK);

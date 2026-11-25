@@ -24,6 +24,8 @@ const schema = z.object({
   ATLAS_OWNER_USER_ID: z.uuid().optional(),
   /** Allows demo mode in a production build (for a preview deploy with no database). */
   ATLAS_DEMO: bool(false),
+  /** Turns on the public demo MCP connector (/api/mcp-demo): fictional data, no sign-in. Off by default. */
+  ATLAS_MCP_DEMO: bool(false),
   ATLAS_TIMEZONE: z.string().default("America/Denver"),
   ANTHROPIC_API_KEY: z.string().min(20).optional(),
   /** Google Gemini API key (AI Studio). Use a project with billing on: free-tier prompts may be used by Google. */
@@ -45,11 +47,22 @@ const schema = z.object({
   // GitHub, read-only: your login, and optionally a fine-grained token (read-only Contents and Metadata) to include private repositories.
   GITHUB_USER: z.string().min(1).max(60).optional(),
   GITHUB_TOKEN: z.string().min(20).max(300).optional(),
+  /** BLS Public Data API v2 key (free registration). Read-only public statistics: the JOLTS benchmarks. Server-only. */
+  BLS_API_KEY: z.string().min(8).max(200).optional(),
+  /** FRED API key (free). Read-only public statistics: the Indeed software-development postings index. Server-only. */
+  FRED_API_KEY: z.string().min(8).max(200).optional(),
+  /** Adzuna API (free key, low volume, personal research with credit shown). Server-only. */
+  ADZUNA_APP_ID: z.string().min(4).max(64).optional(),
+  ADZUNA_APP_KEY: z.string().min(8).max(128).optional(),
+  /** Firecrawl API key (free plan: 1,000 pages a month). Read-only: the postings of jobs you approved. */
+  FIRECRAWL_API_KEY: z.string().min(20).max(200).optional(),
   /** Optional: the Resumes data source id. Without it, Atlas finds the shared database titled "Resumes". */
   NOTION_RESUMES_DATA_SOURCE_ID: z
     .string()
     .regex(/^[0-9a-f]{8}-?[0-9a-f]{4}-?[0-9a-f]{4}-?[0-9a-f]{4}-?[0-9a-f]{12}$/i)
     .optional(),
+  /** Google Search Console's HTML-tag token (the content="..." value), proving the site is yours. Public, not a secret. */
+  GOOGLE_SITE_VERIFICATION: z.string().regex(/^[A-Za-z0-9_-]{20,100}$/).optional(),
   /** The site's own https address, e.g. https://atlas-optim.vercel.app (OAuth redirects). */
   ATLAS_SITE_URL: z.url().optional(),
   /** 32 random bytes, base64. Encrypts stored OAuth tokens. Generate: openssl rand -base64 32 */
@@ -62,6 +75,11 @@ const schema = z.object({
   VAPID_PRIVATE_KEY: z.string().regex(/^[A-Za-z0-9_-]{40,50}$/).optional(),
   /** Vercel sends it as a bearer token on scheduled (cron) calls. 32+ characters. */
   CRON_SECRET: z.string().min(32).optional(),
+  /**
+   * Bearer token for the 15-minute watch, sent by Supabase Cron. Its own secret, not
+   * CRON_SECRET: it can run /api/cron/watch and nothing else. 32+ characters.
+   */
+  ATLAS_WATCH_SECRET: z.string().min(32).optional(),
   /** Bearer token for the Siri Shortcut capture endpoint. 32+ characters. */
   ATLAS_CAPTURE_TOKEN: z.string().min(32).optional(),
 });
@@ -92,12 +110,14 @@ export function env(): Env {
       "CALENDAR_ICS_URL",
       "NOTION_TOKEN",
       "FIGMA_TOKEN",
+      "FIRECRAWL_API_KEY",
       "GITHUB_TOKEN",
       "ATLAS_KEEPALIVE_TOKEN",
       "ATLAS_VAULT_KEY",
       "GOOGLE_CLIENT_SECRET",
       "VAPID_PRIVATE_KEY",
       "CRON_SECRET",
+      "ATLAS_WATCH_SECRET",
       "ATLAS_CAPTURE_TOKEN",
     ] as const) {
       const value = cached[key];

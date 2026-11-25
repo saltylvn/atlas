@@ -36,7 +36,7 @@ export async function emailAgentWork(ctx: Context, slot: BriefSlot, sync: Store 
   return t.step(
     "Sort, tag and look for senders to declutter",
     () => emailAgentReport({ slot, items, prefs: prefsFrom(ctx.settings), sync: state, syncMessage: message }),
-    (r) => `${r.report.headline} ${r.section.jobs?.length ?? 0} job emails passed to the Applications Agent.`,
+    (r) => `${r.report.headline} ${r.section.jobs?.length ?? 0} job emails passed to the Applications bot.`,
   );
 }
 

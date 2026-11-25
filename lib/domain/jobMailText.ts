@@ -1,16 +1,30 @@
-// Reading the text of a job email, to tell a rejection or an interview invite from a plain
-// "we received your application". Many rejections arrive under a subject like "Update on
-// your application" or "Thank you for applying", so the subject alone cannot tell.
+// Reading the text of a job email, to tell what kind of answer it is: a rejection, an
+// interview invite, an assessment, a request for times, an offer or a request for something,
+// or none of these (a plain "we received your application"). Many rejections arrive under a
+// subject like "Update on your application" or "Thank you for applying", so the subject
+// alone cannot tell.
 //
-// Rules only, no AI model: the email's text never leaves Atlas. Only job emails are read
-// (the Email Agent tags them from sender and subject first), each one once. What is kept
-// is the verdict and the one sentence that decided it, with addresses, phone numbers and
-// links removed. The text itself is never stored or logged. Pure: no I/O.
+// Everything in this file is rules: no AI model, no I/O. Only job emails are read (the Email
+// Agent tags them from sender and subject first, and every email from a company with an open
+// application is read too), each one once. What is kept is the verdict and the one sentence
+// that decided it, with addresses, phone numbers and links removed. The text itself is never
+// stored or logged.
+//
+// What may leave Atlas, and when (docs/design-pipeline.md, 5.5; docs/SECURITY.md):
+//   - By default, nothing. The rules here read every job email, and its text goes nowhere.
+//   - Only while the setting "Let the AI model read what rules cannot" is on (it starts off):
+//     an email that arrived after you turned it on, from a company with an open application,
+//     that these rules read as "none", is sent to the AI model once (lib/agents/mailReader.ts).
+//     What is sent is `textForModel` below and nothing more: the email's own words (no quoted
+//     earlier message), with email addresses, phone numbers and links removed, cut so that
+//     the subject and the text together are at most 4,000 characters. Company and people's
+//     names stay in. At most 12 emails a day. Never from the 15-minute watch.
 
 import { roleFromSubject } from "./applications";
 import { scrub, scrubPhones } from "./knowledge";
+import { TEXT_VERDICTS, type TextVerdict } from "./types";
 
-export type TextVerdict = "interview" | "rejection" | "none";
+export { TEXT_VERDICTS, type TextVerdict };
 
 export interface Reading {
   verdict: TextVerdict;
@@ -24,6 +38,8 @@ export interface Reading {
 export const MAX_TEXT_CHARS = 12_000;
 /** The longest quote kept. */
 export const MAX_QUOTE_CHARS = 200;
+/** The most of one email (subject and text together) that may go to the AI model (5.5). */
+export const MAX_MODEL_CHARS = 4_000;
 
 // A rejection, said plainly. "Unfortunately" alone is not one: confirmations use it too
 // ("unfortunately we cannot reply to every applicant").
@@ -43,8 +59,10 @@ const REJECTION: RegExp[] = [
 
 // An invitation to talk, not a promise that someone may reach out one day.
 const INTERVIEW: RegExp[] = [
-  /\binvit(?:e|ing) you (?:to|for) (?:an? |the |a quick |a short |our )?(?:interview|phone (?:screen|interview|call)|video (?:call|interview)|call|conversation|chat|meeting|next round|onsite|on-site|technical|virtual)/i,
-  /\b(?:would|'d|’d) (?:like|love) to (?:schedule|set up|arrange|invite you|speak with you|talk with you|chat with you|meet with you|connect with you|move you forward)\b/i,
+  // What you are invited to must be a conversation: "invite you to our virtual open house" and
+  // "would like to invite you to view these jobs" are not interviews.
+  /\binvit(?:e|ing) you (?:to|for) (?:an? |the |a quick |a short |our )?(?:interview|phone (?:screen|interview|call)|video (?:call|interview)|call|conversation|chat|meeting|next round|onsite|on-site|(?:technical|virtual) (?:interview|screen|call|round|onsite|on-site|conversation|discussion|chat|meeting))/i,
+  /\b(?:would|'d|’d) (?:like|love) to (?:schedule|set up|arrange|speak with you|talk with you|chat with you|meet with you|connect with you|move you forward)\b/i,
   /\b(?:schedule|set up|book|arrange) (?:an?|your|the|a quick|a short) (?:interview|phone screen|screening|screening call|call|video call|chat|conversation|meeting|time to (?:talk|chat|speak))\b/i,
   /\b(?:share|send|provide|let (?:us|me) know|reply with) (?:me |us )?(?:your|a few times (?:of|for) your|some) availability\b/i,
   /\b(?:select|pick|choose|book|grab) a time\b/i,
@@ -53,6 +71,66 @@ const INTERVIEW: RegExp[] = [
   /\bnext step (?:is|will be|would be) (?:an?|a quick|a short|the) (?:interview|call|phone screen|chat|conversation|technical|video)/i,
   /\b(?:calendly\.com|goodtime\.io|cal\.com\/|calendar\.app\.google|ashbyhq\.com\/[^\s]*schedul|greenhouse\.io\/[^\s]*schedul)/i,
 ];
+
+// An offer, made to you in so many words. "Offer" alone is not one: companies offer benefits,
+// describe what happens before an offer, and decline to make one. A false offer is the most
+// expensive mistake this reader can make, so anything short of plain is left undecided.
+const OFFER: RegExp[] = [
+  /\b(?:pleased|delighted|excited|thrilled|happy|glad) to (?:extend|offer|make)(?: to)? you (?:an?|the|our|this) (?:formal |official |verbal |written |conditional )?(?:offer|position|role|job)\b/i,
+  /\b(?:extend(?:ing)?|mak(?:e|ing)) you (?:an?|our) (?:formal |official |verbal |written |conditional )?offer\b/i,
+  /\b(?:would|'d|’d) like to (?:offer you (?:the|a|this|our) (?:position|role|job)|extend (?:you )?an offer|make you an offer)\b/i,
+  /\boffer of employment\b/i,
+  /\b(?:attached|enclosed|here) is (?:your|the|our) (?:formal |official |written )?offer(?: letter)?\b/i,
+  /\byour (?:formal |official |written )?offer letter is (?:attached|enclosed|ready|below)\b/i,
+];
+// A sentence about offers in general, or one that says no.
+const NOT_AN_OFFER = /\b(?:not|unable|cannot|no longer|regret|if|when|once|before|prior to|until|unless|should|may|might)\b|n['’]t\b/i;
+
+// A test to take: named as one, and asked of you (not a step the company's process may include).
+const TEST = "(?:assessment|take[- ]home(?: (?:assignment|exercise|project|challenge|test))?|(?:coding|technical|programming|skills?|online|written|aptitude) (?:challenge|test|exercise|assignment|assessment|screen)|work sample|case study|homework assignment)";
+const SOME_WORDS = "(?:[\\w'’-]+ ){0,5}?";
+const ASSESSMENT: RegExp[] = [
+  new RegExp(`\\b(?:complete|take|finish|submit|start|begin) ${SOME_WORDS}${TEST}\\b`, "i"),
+  new RegExp(`\\binvit(?:e|ing|ed) you to (?:(?:complete|take|participate in|do|sit) )?${SOME_WORDS}${TEST}\\b`, "i"),
+  new RegExp(`\\bnext step ${SOME_WORDS}(?:is|will be|would be) ${SOME_WORDS}${TEST}\\b`, "i"),
+  new RegExp(`\\b(?:your|the|this) ${SOME_WORDS}${TEST} (?:is (?:ready|attached|below|due)|link|must be (?:completed|submitted)|should take|will take)\\b`, "i"),
+  /\b(?:hackerrank\.com|codesignal\.com|codility\.com|coderbyte\.com|testgorilla\.com|coderpad\.io)\b/i,
+];
+const NAMES_A_TEST = new RegExp(`\\b${TEST}\\b`, "i");
+const NOT_ASKED_YET = /\b(?:may|might|typically|usually|some candidates|process (?:includes|consists|involves))\b/i;
+
+// A request for times that names no interview (those are invites, above): what works for
+// you, when you are free, or a meeting that has to move.
+const DAY = "(?:(?:mon|tues|wednes|thurs|fri|satur|sun)day|tomorrow|today|(?:this|next) week|\\d{1,2}(?::\\d{2})?\\s?(?:a\\.?m\\.?|p\\.?m\\.?))";
+const SCHEDULING: RegExp[] = [
+  /\b(?:what|which) (?:times?|days?|dates?)(?: (?:and|or) times?)? (?:work|works|would work|are best|is best|suits?)\b/i,
+  /\bwhen (?:are|would) you (?:be )?(?:available|free)\b/i,
+  new RegExp(`\\b(?:are|would) you (?:be )?(?:available|free)\\b.{0,60}?\\b${DAY}`, "i"),
+  new RegExp(`\\b(?:does|would|will|do)\\b.{0,60}?\\b${DAY}.{0,40}?\\bwork (?:for|with) you\\b`, "i"),
+  /\b(?:send|share|give|provide|suggest|propose|let (?:me|us) know)(?: me| us)? (?:(?:a few|some|a couple of|two or three|2-3|several) )?(?:times|time slots|slots|windows|dates)\b/i,
+  /\b(?:need|have|had|want|like) to reschedule\b/i,
+  /\breschedul(?:e|ing) (?:our|your|the)\b/i,
+  /\bmove (?:our|your|the) (?:call|interview|meeting|conversation|chat) to\b/i,
+];
+
+// A request for something of yours: a document, a fact, a form.
+const ASKS = "(?:please|kindly|could you|can you|would you|we(?:'d|’d| would) (?:like|need) you to|we need you to|you(?:'ll|’ll| will) need to|we ask that you)";
+const SEND = "(?:send|provide|share|submit|upload|forward|complete|fill (?:out|in)|confirm|verify|attach|return|sign)";
+const THING =
+  "(?:resume|résumé|cv|portfolio|references?|transcripts?|(?:work|writing|code) samples?|cover letter|(?:salary|compensation|pay) (?:expectations?|requirements?|range)|work authorization|visa status|start date|notice period|linkedin|github|certifications?|proof of|background check|(?:additional|more|further|the following|some|a few|the requested|the missing) (?:information|details|documents?|materials?|items?)|form|questionnaire)";
+const INFO_REQUEST: RegExp[] = [
+  new RegExp(`\\b${ASKS}\\b.{0,40}?\\b${SEND}\\b.{0,80}?\\b${THING}\\b`, "i"),
+  /\b(?:what(?:'s|’s| is| are)|(?:could|can) you share) your (?:salary|compensation|pay) (?:expectations?|requirements?|range)\b/i,
+  /\bare you (?:legally )?(?:authorized|eligible) to work\b/i,
+  /\b(?:do|will|would) you (?:now or in the future )?(?:require|need) (?:visa )?sponsorship\b/i,
+  /\b(?:when|how soon) (?:could|can|would) you (?:be able to )?start\b/i,
+  /\bwhat is your (?:earliest )?(?:start date|notice period)\b/i,
+];
+// Surveys and account notices are not requests from the hiring team.
+const NOT_A_REQUEST = /\b(?:voluntary|optional|self[- ]identif\w*|demographic|survey|feedback|eeo|equal (?:employment )?opportunity|your account|password|unsubscribe|email address)\b/i;
+
+// An event open to every applicant is not an interview.
+const AN_EVENT = /\b(?:webinar|open house|info(?:rmation)? session|career fair|hiring event|meetup|workshop|talent (?:community|network)|newsletter)\b/i;
 
 // A sentence that only describes what might happen is not a decision.
 const HYPOTHETICAL = /\b(?:if|in the event|should (?:you|we|your)|unless|whether|once (?:we|our|the))\b/i;
@@ -110,8 +188,8 @@ export function pickTextPart(root: StructureNode | undefined): { part: string; h
   return null;
 }
 
-/** The email's own words: quoted earlier messages and signatures' legal footers dropped. */
-function ownWords(text: string): string {
+/** The email's own words: the quoted earlier message, and everything under it, dropped. */
+export function ownWords(text: string): string {
   const lines = text.slice(0, MAX_TEXT_CHARS).split("\n");
   const out: string[] = [];
   for (const l of lines) {
@@ -136,15 +214,41 @@ export function cleanQuote(s: string): string {
   return q.length > MAX_QUOTE_CHARS ? `${q.slice(0, MAX_QUOTE_CHARS - 1).trimEnd()}…` : q;
 }
 
-/** What a job email's text says: a rejection, an interview invite, or neither (a rejection wins), and the role it names. */
+/**
+ * What a job email's text says, and the role it names. One verdict per email, the weightiest
+ * first: a rejection, an offer, an interview invite, an assessment, a request for times, a
+ * request for something. "none" when no rule decides it.
+ */
 export function readVerdict(text: string): Reading {
   const sentences = sentencesOf(text);
   const role = roleFromText(text);
-  const rejected = sentences.find((s) => !HYPOTHETICAL.test(s) && REJECTION.some((r) => r.test(s)));
-  if (rejected) return { verdict: "rejection", quote: cleanQuote(rejected), role };
-  const invited = sentences.find((s) => !HYPOTHETICAL.test(s) && !PROMISE.test(s) && INTERVIEW.some((r) => r.test(s)));
-  if (invited) return { verdict: "interview", quote: cleanQuote(invited), role };
-  return { verdict: "none", quote: "", role };
+  const said = (verdict: TextVerdict, s: string | undefined): Reading | null => (s ? { verdict, quote: cleanQuote(s), role } : null);
+  const decided = sentences.filter((s) => !HYPOTHETICAL.test(s));
+  const hit = (rules: RegExp[]) => (s: string) => rules.some((r) => r.test(s));
+  return (
+    said("rejection", decided.find(hit(REJECTION))) ??
+    said("offer", decided.find((s) => !NOT_AN_OFFER.test(s) && hit(OFFER)(s))) ??
+    // "We invite you to a technical assessment" is a test to take, not an interview.
+    said("interview", decided.find((s) => !PROMISE.test(s) && !NAMES_A_TEST.test(s) && !AN_EVENT.test(s) && hit(INTERVIEW)(s))) ??
+    said("assessment", decided.find((s) => !PROMISE.test(s) && !NOT_ASKED_YET.test(s) && hit(ASSESSMENT)(s))) ??
+    said("scheduling", decided.find((s) => !PROMISE.test(s) && hit(SCHEDULING)(s))) ??
+    said("info_request", decided.find((s) => !PROMISE.test(s) && !NOT_A_REQUEST.test(s) && hit(INFO_REQUEST)(s))) ?? { verdict: "none", quote: "", role }
+  );
+}
+
+/**
+ * The only form in which a job email's text may go to the AI model (5.5): its own words (no
+ * quoted earlier message), with email addresses, phone numbers and links removed, cut to
+ * `max` characters. Names stay in: the reading needs them.
+ */
+export function textForModel(text: string, max: number = MAX_MODEL_CHARS): string {
+  const clean = scrubPhones(scrub(ownWords(text)))
+    .replace(/\b[\w.-]+\.(?:com|io|co|ai|org|net)\/\S*/gi, "")
+    .split("\n")
+    .map((l) => l.replace(/[ \t]+/g, " ").trim())
+    .filter(Boolean)
+    .join("\n");
+  return clean.slice(0, Math.max(0, max)).trimEnd();
 }
 
 // ---------------------------------------------------------------------------

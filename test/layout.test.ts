@@ -11,10 +11,10 @@ const read = (f: string) => readFileSync(join(__dirname, "..", f), "utf8");
 
 const USED: TabUsage = { today: { saved: 11, briefed: 9 }, growth: { given: 6, answered: 4 }, career: { queued: 3, decided: 2, waiting: 1 }, people: { due: 2, sent: 3 } };
 
-describe("the layout the QA Agent keeps in mind", () => {
+describe("the layout the QA bot keeps in mind", () => {
   it("records what the owner asked for: four tabs, each with one job", () => {
     expect(MAIN_TABS.map((t) => t.id)).toEqual(["today", "growth", "career", "people"]);
-    for (const word of ["Today, Growth, Career, People", "Mentor", "Approval Queue", "texts", "never rearrange"]) expect(LAYOUT_BRIEF).toContain(word);
+    for (const word of ["Today, Growth, Career, People", "Career Mentor", "Good fits", "Apply Queue", "texts", "never rearrange"]) expect(LAYOUT_BRIEF).toContain(word);
     expect(LAYOUT_SINCE).toBe("2026-11-17");
     const instructions = read("agents/qa/instructions.md");
     for (const word of ["Layout and workflow", "Growth", "Career", "People", "options to look into", "lib/domain/layout.ts"]) expect(instructions).toContain(word);
@@ -86,7 +86,7 @@ describe("the QA review's layout check", () => {
 
   it("always says it looked, and passes when every tab was used", () => {
     const { check, findings } = layout(qaReview(input("2026-11-29", USED)));
-    expect(check).toEqual({ area: "layout", name: "Each main tab was used", ok: true, note: "Today: 9 of 11 briefs marked Briefed · Growth: 4 of 6 Mentor insights answered · Career: 3 queued, 2 decided, 1 waiting · People: 3 sent, 2 due a check-in" });
+    expect(check).toEqual({ area: "layout", name: "Each main tab was used", ok: true, note: "Today: 9 of 11 briefs marked Briefed · Growth: 4 of 6 Career Mentor insights answered · Career: 3 queued, 2 decided, 1 waiting · People: 3 sent, 2 due a check-in" });
     expect(findings).toEqual([]);
     expect(QA_AREA_LABEL.layout).toBe("Layout and workflow");
   });
@@ -134,7 +134,7 @@ describe("Growth: daily mentoring", () => {
     const page = read("app/(app)/growth/page.tsx");
     expect(page).toContain('title="Daily mentoring"');
     expect(page.indexOf('id="mentor"')).toBeLessThan(page.indexOf('id="projects"'));
-    // Today's Mentor card still lands on it.
+    // Today's Career Mentor card still lands on it.
     expect(read("components/MentorCard.tsx")).toContain('href="/growth#mentor"');
   });
 });

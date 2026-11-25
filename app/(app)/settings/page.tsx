@@ -2,8 +2,13 @@ import Link from "next/link";
 import { getContext } from "@/lib/context";
 import { env } from "@/lib/env";
 import { aiConfigured, aiName } from "@/lib/ai/model";
+import { MODEL_READER_LABEL, modelReaderHint } from "@/lib/domain/mailReader";
 import { signOut } from "@/app/actions/settings";
 import { SettingsForm, Switch } from "@/components/client/SettingsForm";
+import { ExtensionConnect } from "@/components/client/ExtensionConnect";
+import { ClaudeConnect } from "@/components/client/ClaudeConnect";
+import { headers } from "next/headers";
+import { createUserClient } from "@/lib/supabase/server";
 import { Icon } from "@/components/Icon";
 import { CardHeader, Pill, timeAgo } from "@/components/ui";
 
@@ -13,6 +18,13 @@ export default async function SettingsPage() {
   const { store, settings, mode, now } = await getContext();
   const e = env();
   const [events, aiToday] = await Promise.all([store.audit.recent(40), store.aiUsage.countToday()]);
+  // Connect Claude: this deployment's address, and the apps you approved (live only).
+  const h = await headers();
+  const origin = `${h.get("x-forwarded-proto") ?? "https"}://${h.get("host") ?? "localhost"}`;
+  const grants =
+    mode === "live"
+      ? ((await (await createUserClient()).auth.oauth.listGrants().catch(() => ({ data: null }))).data ?? []).map((g) => ({ clientId: g.client.id, name: g.client.name || "An app", since: timeAgo(g.granted_at, now) }))
+      : [];
 
   const checks: { label: string; ok: boolean; detail: string }[] = [
     { label: "Database & sign-in", ok: mode === "live", detail: mode === "live" ? "Supabase, owner-only, MFA required (aal2)" : "Demo mode: in-memory, no sign-in" },
@@ -44,6 +56,7 @@ export default async function SettingsPage() {
             <div className="divide-y divide-line">
               <Switch name="outboundEnabled" on={settings.outboundEnabled} danger label="Outbound allowed" hint="Off = kill switch: no drafts handed off and no AI calls. Reads keep working." />
               <Switch name="aiEnabled" on={settings.aiEnabled} label="Claude assistance" hint="Off = rules-based brief and offline drafter only." />
+              <Switch name="modelReader" on={settings.modelReader === true} label={MODEL_READER_LABEL} hint={modelReaderHint(aiConfigured() ? aiName() : "the AI model")} />
             </div>
           </section>
           <section className="card card-pad">
@@ -51,7 +64,7 @@ export default async function SettingsPage() {
             <ul className="space-y-2.5">
               {checks.map((c) => (
                 <li key={c.label} className="flex items-start gap-3">
-                  <span className="mt-1 h-2.5 w-2.5 shrink-0 rounded-full" style={{ background: c.ok ? "var(--c-green)" : "var(--c-orange)" }} />
+                  <span className="mt-1 h-2.5 w-2.5 shrink-0 rounded-full" style={{ background: c.ok ? "var(--c-green)" : "var(--c-warn)" }} />
                   <span>
                     <span className="block text-sm font-semibold">{c.label}</span>
                     <span className="block text-xs text-ink-3">{c.detail}</span>
@@ -59,6 +72,14 @@ export default async function SettingsPage() {
                 </li>
               ))}
             </ul>
+          </section>
+          <section id="extension" className="card card-connector card-pad scroll-mt-20">
+            <CardHeader title="Atlas Autofill" icon="wand" hint="The browser extension that fills job applications on your Mac. Its key can only ask Atlas to answer a form, fetch your resume, and save an answer you corrected." />
+            <ExtensionConnect connected={Boolean(settings.extensionKey)} label={settings.extensionKey?.prefix ?? ""} since={settings.extensionKey ? timeAgo(settings.extensionKey.createdAt, now) : ""} used={settings.extensionKey?.lastUsedAt ? timeAgo(settings.extensionKey.lastUsedAt, now) : ""} />
+          </section>
+          <section id="claude" className="card card-connector card-pad scroll-mt-20">
+            <CardHeader title="Connect Claude" icon="message" hint="Talk with Claude about your job search (typing or voice, on your phone or Mac): it reads Atlas through a read-only connector. Off by default. You approve each app once, signed in with your second factor; revoke it here any time." />
+            <ClaudeConnect on={settings.mcpEnabled === true} url={`${origin}/api/mcp`} grants={grants} used={settings.mcpLastUsedAt ? timeAgo(settings.mcpLastUsedAt, now) : ""} />
           </section>
           <section className="card card-pad">
             <CardHeader title="Renewals" icon="clock" hint="Bills, registrations and documents, with a heads-up before they are due." />
@@ -98,7 +119,7 @@ export default async function SettingsPage() {
                   <td className="px-4 py-2 font-mono text-xs">{ev.action}</td>
                   <td className="max-w-[280px] truncate px-4 py-2 text-ink-2">{ev.detail}</td>
                   <td className="px-4 py-2">
-                    <Pill color={ev.outcome === "success" ? "var(--c-green)" : ev.outcome === "denied" ? "var(--c-orange)" : "var(--c-red)"}>{ev.outcome}</Pill>
+                    <Pill color={ev.outcome === "success" ? "var(--c-green)" : ev.outcome === "denied" ? "var(--c-warn)" : "var(--c-red)"}>{ev.outcome}</Pill>
                   </td>
                 </tr>
               ))}

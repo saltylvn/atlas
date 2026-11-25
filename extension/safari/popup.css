@@ -1,13 +1,31 @@
-:root { color-scheme: light dark; --bg: #ffffff; --ink: #16181d; --muted: #5b616e; --line: #d8dbe2; --brand: #7c5cff; }
-@media (prefers-color-scheme: dark) { :root { --bg: #16181d; --ink: #f5f6f7; --muted: #9aa1ad; --line: #2c3038; --brand: #9b85ff; } }
-body { margin: 0; padding: 14px; width: 300px; background: var(--bg); color: var(--ink); font: 14px/1.45 -apple-system, system-ui, sans-serif; }
+:root { color-scheme: light dark; --bg: #ffffff; --ink: #16181d; --muted: #5b616e; --line: #d8dbe2; --brand: #6d28d9; --soft: #f4f4f6; }
+@media (prefers-color-scheme: dark) { :root { --bg: #16181d; --ink: #f5f6f7; --muted: #9aa1ad; --line: #2c3038; --brand: #9b85ff; --soft: #20232a; } }
+body { margin: 0; padding: 14px; width: 320px; background: var(--bg); color: var(--ink); font: 14px/1.45 -apple-system, system-ui, sans-serif; }
 header { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
 h1 { font-size: 15px; margin: 0; }
+p { margin: 0 0 6px; }
+section { margin: 10px 0; padding: 10px; border: 1px solid var(--line); border-radius: 10px; }
+ul { margin: 4px 0 0; padding: 0; list-style: none; }
 label { display: block; margin-top: 8px; font-size: 12px; color: var(--muted); }
 input { display: block; width: 100%; box-sizing: border-box; margin-top: 3px; padding: 7px 8px; border: 1px solid var(--line); border-radius: 7px; background: transparent; color: var(--ink); font: inherit; }
 button { margin-top: 12px; width: 100%; padding: 9px; border: 0; border-radius: 8px; background: var(--brand); color: #fff; font: inherit; font-weight: 600; cursor: pointer; }
 button:disabled { opacity: 0.6; cursor: default; }
+button:focus-visible, input:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; }
+button.ghost { margin-top: 8px; background: transparent; color: var(--ink); border: 1px solid var(--line); font-weight: 500; }
+button.link { margin-top: 6px; padding: 4px 0; width: auto; background: transparent; color: var(--brand); font-weight: 500; text-align: left; }
+button.job { margin-top: 6px; padding: 8px; background: var(--soft); color: var(--ink); font-weight: 400; text-align: left; }
+button.job .co { display: block; font-size: 12px; color: var(--muted); }
+#queue-list { max-height: 210px; overflow-y: auto; }
+#job-facts li { margin-top: 2px; }
+.row { display: flex; gap: 8px; }
+.eyebrow { margin: 0; font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); }
+.strong { font-weight: 600; margin: 2px 0; }
+.star { color: var(--brand); }
 .muted { color: var(--muted); }
 .small { font-size: 12px; }
 #result { margin: 10px 0 0; min-height: 1em; }
 #result.bad { color: #e5484d; }
+#assist { margin-top: 8px; }
+.note { margin: 10px 0 0; padding: 8px; border-radius: 8px; background: color-mix(in oklab, #f76b15 13%, var(--bg)); color: var(--ink); }
+.bad { color: #e5484d; }
+#connect label { margin-top: 6px; }

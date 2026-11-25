@@ -11,8 +11,8 @@ export const metadata = { title: "Renewals" };
 
 const KIND_COLOR: Record<RenewalKind, string> = {
   bill: "var(--c-blue)",
-  renewal: "var(--c-purple)",
-  document: "var(--c-teal)",
+  renewal: "var(--c-indigo)",
+  document: "var(--c-slate)",
 };
 
 const KIND_LABEL: Record<RenewalKind, string> = { bill: "Bill", renewal: "Renewal", document: "Document" };
@@ -75,7 +75,7 @@ export default async function RenewalsPage() {
                 <CardHeader
                   title="From your email"
                   icon="mail"
-                  hint="Bills, statements and payment alerts the Finance Agent found. Track one and it joins your list; nothing is added without your click."
+                  hint="Bills, statements and payment alerts the Finance bot found. Track one and it joins your list; nothing is added without your click."
                 />
               </div>
               <ul className="divide-y divide-line">

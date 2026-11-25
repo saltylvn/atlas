@@ -25,7 +25,7 @@ describe("Career direction", () => {
     const names = roles.map((x) => x.name);
     for (const r of CAREER_DIRECTION.roles) expect(names).toContain(r.mapsTo);
     expect(marketNamesFor("Forward Deployed Engineer")).toEqual(["Agent Deployment Engineer", "Applied AI Engineer"]);
-    expect(marketNamesFor("AI Workflow Engineer")).toEqual(["AI Agent Engineer", "Agentic AI Engineer"]);
+    expect(marketNamesFor("AI Automation Engineer")).toEqual(["AI Agent Engineer", "Agentic AI Engineer", "Internal AI Engineer", "GTM Engineer", "Go-to-market engineer"]);
     expect(marketNamesFor("Solutions Engineer")).toEqual(["AI Solutions Engineer"]);
     expect(marketNamesFor("Software Engineer")).toEqual([]);
   });
@@ -33,13 +33,13 @@ describe("Career direction", () => {
   it("matches the market titles to your roles", () => {
     const r = (t: string) => roleFor(t, roles)?.name ?? null;
     expect(r("Agent Deployment Engineer")).toBe("Forward Deployed Engineer");
-    expect(r("Agentic AI Engineer")).toBe("AI Workflow Engineer");
-    expect(r("Internal AI Engineer")).toBe("AI + Automation Engineer");
+    expect(r("Agentic AI Engineer")).toBe("AI Automation Engineer");
+    expect(r("Internal AI Engineer")).toBe("AI Automation Engineer");
     expect(r("AI Solutions Engineer")).toBe("Solutions Engineer");
-    expect(r("GTM Engineer")).toBe("GTM Engineer");
-    expect(r("Go-to-Market Engineer")).toBe("GTM Engineer");
-    expect(r("GTM Automation Engineer")).toBe("GTM Engineer");
-    expect(r("Senior RevOps Engineer")).toBe("GTM Engineer");
+    expect(r("GTM Engineer")).toBe("AI Automation Engineer");
+    expect(r("Go-to-Market Engineer")).toBe("AI Automation Engineer");
+    expect(r("GTM Automation Engineer")).toBe("AI Automation Engineer");
+    expect(r("Senior RevOps Engineer")).toBe("AI Automation Engineer");
   });
 
   it("spots demo-only pre-sales postings and ranks them lower", () => {
@@ -49,7 +49,7 @@ describe("Career direction", () => {
     expect(isDemoOnly("Sales Engineer", "Help close deals.")).toBe(true);
     expect(isDemoOnly("AI Solutions Engineer", build)).toBe(false);
     expect(isDemoOnly("Solutions Engineer", `${demo} ${build}`)).toBe(false);
-    const ranked = candidates([job("Solutions Engineer", demo), job("AI Solutions Engineer", build)], { roles, minSalary: 120_000, minRate: 45 }, tasteFrom([]), now, REMOTE_BOARDS);
+    const ranked = candidates([job("Solutions Engineer", demo), job("AI Solutions Engineer", build)], { roles, minSalary: 120_000 }, tasteFrom([]), now, REMOTE_BOARDS);
     expect(ranked.map((c) => c.title)).toEqual(["AI Solutions Engineer", "Solutions Engineer"]);
     expect(ranked[0]!.score - ranked[1]!.score).toBeGreaterThanOrEqual(15);
   });

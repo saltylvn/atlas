@@ -24,13 +24,20 @@ const TAGS: TagRow[] = [
   ["Northwind Recruiting", "no-reply@greenhouse-mail.io", "Voluntary self-identification survey", "noise", NOTIFY, "job:confirmation"],
   ["Workday", "talent@myworkday.com", "Action required: finish setting up your candidate account", "noise", NOTIFY, "job:confirmation"],
   ["Jane Kim", "jane.kim@northwind.io", "Solutions Engineer role at Northwind", "fyi", DIRECT, "job:recruiter"],
+  // An interview by its subject: these emails are unread, so the subject is all there is. Once
+  // the text is read it decides (lib/evals/suites/pipeline.ts has those cases).
   ["Sam Ortiz", "sam@halcyon.ai", "Interview availability for the Forward Deployed Engineer role", "fyi", DIRECT, "job:interview"],
   ["Dana Whitfield", "dana@northwindlabs.com", "Re: Solutions Engineer interview", "reply", "Asks you something directly", "job:interview"],
   ["Lever", "no-reply@hire.lever.co", "Update on your application", "noise", NOTIFY, "job:reply"],
+  // "Next steps" names no interview: a reply, so its text is read and decides the rest.
+  ["Halcyon Recruiting", "recruiting@halcyon.ai", "Next steps for your application", "fyi", "Update or receipt", "job:reply"],
+  ["Northwind Recruiting", "no-reply@greenhouse-mail.io", "Next steps with Northwind", "noise", NOTIFY, "job:reply"],
+  ["Tessel", "no-reply@ashbyhq.com", "Thank you for applying to Tessel: next steps", "noise", NOTIFY, "job:confirmation"],
   ["Brightcall Careers", "no-reply@greenhouse-mail.io", "Update: we are not moving forward with your application", "noise", NOTIFY, "job:rejection"],
   ["Priya Shah", "priya@stafflink.com", "Exciting opportunity: Senior Java Developer", "fyi", DIRECT, "job:recruiter"],
   // Not job mail, though it looks close
   ["Indeed", "alert@match.indeed.com", "Cloud Engineer @ The Harlow Group", "noise", LIST, "none"],
+  ["Sprout & Stem", "news@sproutandstem.example", "Next steps for your spring garden", "noise", LIST, "none"],
   ["LinkedIn Job Alerts", "jobalerts-noreply@linkedin.com", "Sam, 12 new jobs for you", "noise", LIST, "none"],
   ["vercel[bot]", "notifications@github.com", "Re: [saltylvn/atlas-optim] Target roles page: similar job titles and a resume link per role (PR #34)", "noise", LIST, "none"],
   ["vercel[bot]", "notifications@github.com", "Re: [saltylvn/atlas-optim] Fix application parsing found on the first real Gmail catch-up (PR #33)", "noise", LIST, "none"],

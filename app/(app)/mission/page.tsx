@@ -1,10 +1,12 @@
+import { redirect } from "next/navigation";
 import Link from "next/link";
 import { aiConfigured, aiMissing, aiName } from "@/lib/ai/model";
 import { loadLive } from "@/lib/agents/live";
 import { getContext } from "@/lib/context";
-import { AGENTS } from "@/lib/domain/agents";
 import { hourLabel, nextBrief, nextSync, SLOT_LABEL, SYNC_TASK } from "@/lib/domain/briefSchedule";
-import { localDate, localTime, shortDate } from "@/lib/domain/dates";
+import { localDate, localTime, shortDate, zonedToUtc } from "@/lib/domain/dates";
+import { dayTimeline } from "@/lib/domain/timeline";
+import { DayTimeline } from "@/components/DayTimeline";
 import type { AgentRunEvent, RunStatus } from "@/lib/domain/types";
 import { env } from "@/lib/env";
 import { EVAL_TASK, pct, runEvals } from "@/lib/evals";
@@ -14,7 +16,9 @@ import { AutoRefresh, PauseToggle, RunNowButton, SyncNowButton } from "@/compone
 import { Icon } from "@/components/Icon";
 import { Avatar, CardHeader, Empty, PageHeader, Pill, timeAgo } from "@/components/ui";
 import { AiJudgmentCard } from "@/components/AiJudgmentCard";
-import { QaCard } from "@/components/QaCard";
+import { KindPill, Tags } from "@/components/KindBadges";
+import { KindSummary } from "@/components/KindSummary";
+import { AGENTS } from "@/lib/domain/agents";
 import { AI_CHECK_TASK } from "@/lib/domain/aiCheck";
 import { activeProvider } from "@/lib/ai/model";
 import { APPROVALS_HREF } from "@/components/ApprovalQueue";
@@ -23,13 +27,15 @@ import { geminiModel } from "@/lib/ai/gemini";
 
 export const metadata = { title: "Mission Control" };
 // Run Now builds a whole brief inside this request.
-export const maxDuration = 60;
+// 300, not 60: Sync now runs from this page, and the sync needs the same time as its scheduled
+// run (QA, 22 Nov 2026: a Sync now stopped at 60 seconds with no result logged).
+export const maxDuration = 300;
 
 const STATUS_COLOR: Record<RunStatus, string> = {
-  started: "var(--c-blue)",
+  started: "var(--c-indigo)",
   succeeded: "var(--c-green)",
   failed: "var(--c-red)",
-  skipped: "var(--c-orange)",
+  skipped: "var(--c-warn)",
 };
 
 /** "850 ms", "4.2 s", "1 min 5 s". */
@@ -37,16 +43,19 @@ const took = (ms: number) => (ms < 1000 ? `${ms} ms` : ms < 60_000 ? `${(ms / 10
 
 const usd = (n: number) => (n === 0 ? "$0" : n < 0.01 ? `$${n.toFixed(4)}` : `$${n.toFixed(2)}`);
 
-/** Switches Mission Control between the dashboard and the live map. A link, so each has its own address to bookmark. */
-function ViewToggle({ view }: { view: "dashboard" | "map" }) {
-  const tab = (on: boolean) => `flex min-h-9 items-center gap-1.5 rounded-md px-3 text-sm font-medium ${on ? "bg-surface text-ink shadow-[0_0_0_1px_var(--line-strong)]" : "text-ink-2 hover:text-ink"}`;
+/** Switches Mission Control between the live map (first, the default), the dashboard and the timeline. Links, so each has its own address. */
+function ViewToggle({ view }: { view: "dashboard" | "map" | "timeline" }) {
+  const tab = (on: boolean) => `flex min-h-11 items-center gap-1.5 rounded-md px-3 text-sm font-medium ${on ? "bg-surface text-ink shadow-[0_0_0_1px_var(--line-strong)]" : "text-ink-2 hover:text-ink"}`;
   return (
-    <nav aria-label="Mission Control view" className="inline-flex gap-1 rounded-lg bg-surface-2 p-1">
-      <Link href="/mission" aria-current={view === "dashboard" ? "page" : undefined} className={tab(view === "dashboard")}>
+    <nav aria-label="Mission Control view" className="inline-flex flex-wrap gap-1 rounded-lg bg-surface-2 p-1">
+      <Link href="/mission" aria-current={view === "map" ? "page" : undefined} className={tab(view === "map")}>
+        <Icon name="team" size={15} /> Live map
+      </Link>
+      <Link href="/mission?view=dashboard" aria-current={view === "dashboard" ? "page" : undefined} className={tab(view === "dashboard")}>
         <Icon name="shield" size={15} /> Dashboard
       </Link>
-      <Link href="/mission?view=map" aria-current={view === "map" ? "page" : undefined} className={tab(view === "map")}>
-        <Icon name="team" size={15} /> Live map
+      <Link href="/mission?view=timeline" aria-current={view === "timeline" ? "page" : undefined} className={tab(view === "timeline")}>
+        <Icon name="clock" size={15} /> Timeline
       </Link>
     </nav>
   );
@@ -68,22 +77,46 @@ async function MissionMap() {
   const live = await loadLive(ctx, false);
   return (
     <div>
-      <PageHeader title="Mission Control" sub="The orchestration map. Boxes light up as agents work; lines show where work and data move." action={<ViewToggle view="map" />} />
+      <PageHeader title="Mission Control" sub="The architecture of Atlas: triggers, the orchestrator, the two desks, the AI agents, sources, and the Claude connector. Boxes light up as they run; lines show where work and data move." toggle={<ViewToggle view="map" />} />
       <LiveMap initial={live} ai={mapAi(ctx.settings.aiEnabled && ctx.settings.outboundEnabled)} />
+    </div>
+  );
+}
+
+/** The Day timeline: today's planned runs against what actually ran, one lane per workflow and bot. */
+async function MissionTimeline() {
+  const ctx = await getContext();
+  const tz = ctx.settings.timezone;
+  const rows = await ctx.store.agentRuns.since(zonedToUtc(ctx.today, "00:00", tz).toISOString()).catch(() => []);
+  const timeline = dayTimeline({ rows, day: ctx.today, timeZone: tz, now: ctx.now });
+  return (
+    <div className="space-y-5">
+      <PageHeader
+        title="Mission Control"
+        sub={`Today, ${shortDate(ctx.today)}: what was planned, and what actually ran.`}
+        toggle={<ViewToggle view="timeline" />}
+        action={<AutoRefresh seconds={30} />}
+      />
+      <DayTimeline timeline={timeline} />
     </div>
   );
 }
 
 export default async function MissionControlPage({ searchParams }: { searchParams: Promise<{ q?: string; view?: string }> }) {
   const { q, view } = await searchParams;
-  if (view === "map") return <MissionMap />;
+  // The live map is Mission Control's first and default view (owner's layout, 24 Nov 2026).
+  // ?view=map still works for old links; a brief search (?q=) opens the dashboard where its results are.
+  if (view === "timeline") return <MissionTimeline />;
+  if (view !== "dashboard" && !q) return <MissionMap />;
+  // The data pipeline lives on its own page now (Data Pipeline); an old link lands there.
+  if (view === "pipeline") redirect("/data#pipeline");
   const query = (q ?? "").trim().slice(0, 80);
   const { store, now, today, time, settings, mode } = await getContext();
   // Whether an agent that uses a model actually reaches one right now.
   const aiOn = aiConfigured() && settings.aiEnabled && settings.outboundEnabled;
   const tz = settings.timezone;
   const weekAgo = new Date(now.getTime() - 7 * 86_400_000).toISOString();
-  const [runs, states, connections, devices, briefs, tracked, approvals, aiUsed, qaReports] = await Promise.all([
+  const [runs, states, connections, devices, briefs, tracked, approvals, aiUsed] = await Promise.all([
     store.agentRuns.since(weekAgo),
     store.agentState.list(),
     store.connections.list(),
@@ -92,7 +125,6 @@ export default async function MissionControlPage({ searchParams }: { searchParam
     store.applications.list().catch(() => []),
     store.approvals.list().catch(() => []),
     store.aiUsage.countToday().catch(() => 0),
-    store.qa.recent(1).catch(() => []),
   ]);
 
   // The daily eval run is logged under the Chief of Staff; it is not one of its briefs.
@@ -173,22 +205,20 @@ export default async function MissionControlPage({ searchParams }: { searchParam
       <div className="space-y-5">
         <PageHeader
           title="Mission Control"
-          sub={`Every agent at a glance. Next: ${SLOT_LABEL[next.slot]}, ${next.day === today ? "today" : shortDate(next.day)}.`}
-          action={
-            <div className="flex flex-wrap items-center gap-3">
-              <AutoRefresh seconds={15} />
-              <ViewToggle view="dashboard" />
-            </div>
-          }
+          sub={`Every workflow, bot and agent at a glance. Next: ${SLOT_LABEL[next.slot]}, ${next.day === today ? "today" : shortDate(next.day)}.`}
+          toggle={<ViewToggle view="dashboard" />}
+          action={<AutoRefresh seconds={15} />}
         />
 
-        <p className="-mt-2 text-xs text-ink-3 md:hidden">Laid out for an iPad or Mac. On a phone, tap an agent for its details; the live map scrolls sideways.</p>
+        <p className="-mt-2 text-xs text-ink-3 md:hidden">Laid out for an iPad or Mac. On a phone, tap a bot for its details; the live map scrolls sideways.</p>
+
+        <KindSummary />
 
         <section className="card card-pad flex flex-wrap items-center justify-between gap-3">
           <div>
             <p className="h-display font-semibold">2-hour sync</p>
             <p className="text-sm text-ink-2">
-              Monday to Saturday, every two hours from 6 AM to 4 PM, every agent reports to the Chief of Staff.{" "}
+              Monday to Saturday, every two hours from 6 AM to 4 PM, every bot reports to the Chief of Staff.{" "}
               {lastSync ? (
                 <span className={lastSync.status === "failed" ? "text-bad" : ""}>
                   Last: {timeAgo(lastSync.at, now)} ({lastSync.status}).
@@ -217,10 +247,8 @@ export default async function MissionControlPage({ searchParams }: { searchParam
           />
         )}
 
-        <QaCard latest={qaReports[0] ?? null} now={now} />
-
         {/* On a phone: one row per agent, tapped open for its last result, its AI use and its buttons. */}
-        <section className="card divide-y divide-line md:hidden" aria-label="Agents">
+        <section className="card divide-y divide-line md:hidden" aria-label="Workflows and bots">
           {agents.map(({ a, last, paused, live }) => (
             <details key={a.id} className="group">
               <summary className="flex min-h-14 cursor-pointer list-none items-center gap-3 px-4 py-2.5 [&::-webkit-details-marker]:hidden">
@@ -241,6 +269,11 @@ export default async function MissionControlPage({ searchParams }: { searchParam
                 <Icon name="chevron" size={16} className="shrink-0 text-ink-3 transition-transform group-open:rotate-180" />
               </summary>
               <div className="flex flex-col gap-3 px-4 pb-4">
+                <div className="flex flex-wrap items-center gap-1.5">
+                  <KindPill kind={a.kind} />
+                  <Tags reach={a.reach} trigger={a.trigger} />
+                </div>
+                <p className="text-xs text-ink-3">Pattern: {a.pattern}</p>
                 {last?.detail && <p className="break-words text-xs text-ink-3">{last.detail}</p>}
                 <AgentWork agent={a} live={live} paused={paused} aiOn={aiOn} />
               </div>
@@ -261,6 +294,11 @@ export default async function MissionControlPage({ searchParams }: { searchParam
                 </div>
                 <AgentPill live={live} paused={paused} step={a.buildStep} />
               </div>
+              <div className="flex flex-wrap items-center gap-1.5">
+                <KindPill kind={a.kind} />
+                <Tags reach={a.reach} trigger={a.trigger} />
+              </div>
+              <p className="-mt-1 text-xs text-ink-3">Pattern: {a.pattern}</p>
               {live && (
                 <>
                   <dl className="grid grid-cols-3 gap-2 text-xs">
@@ -293,9 +331,9 @@ export default async function MissionControlPage({ searchParams }: { searchParam
 
         <div className="grid gap-5 lg:grid-cols-3">
           <section className="card card-pad lg:col-span-2">
-            <CardHeader title="Live activity" icon="clock" hint="Every task each agent started, finished, failed or skipped. Open a trace to see its steps." />
+            <CardHeader title="Live activity" icon="clock" hint="Every task each bot started, finished, failed or skipped. Open a trace to see its steps." />
             {runs.length === 0 ? (
-              <Empty>No agent activity yet. The first scheduled brief logs here.</Empty>
+              <Empty>No activity yet. The first scheduled brief logs here.</Empty>
             ) : (
               <ul className="divide-y divide-line">
                 {runs.slice(0, 30).map((r) => (
@@ -358,9 +396,9 @@ export default async function MissionControlPage({ searchParams }: { searchParam
 
             <section className="card card-pad">
               <CardHeader
-                title="Agent evals"
+                title="Bot evals"
                 icon="check"
-                hint="Each agent's rules scored against labeled cases, right now"
+                hint="Each bot's rules scored against labeled cases, right now"
                 action={
                   <Link href="/evals" className="btn btn-ghost btn-sm">
                     Open
@@ -407,7 +445,7 @@ export default async function MissionControlPage({ searchParams }: { searchParam
             <ul className="space-y-2">
               {health.map((h) => (
                 <li key={h.name} className="flex items-start gap-2.5 text-sm">
-                  <span className="mt-1.5 h-2.5 w-2.5 shrink-0 rounded-full" style={{ background: h.ok === null ? "var(--c-grey)" : h.ok ? "var(--c-green)" : "var(--c-orange)" }} />
+                  <span className="mt-1.5 h-2.5 w-2.5 shrink-0 rounded-full" style={{ background: h.ok === null ? "var(--c-grey)" : h.ok ? "var(--c-green)" : "var(--c-warn)" }} />
                   <span>
                     <span className="font-medium">{h.name}</span>
                     <span className="block text-xs text-ink-3">{h.note}</span>
@@ -433,11 +471,11 @@ export default async function MissionControlPage({ searchParams }: { searchParam
             )}
             <div className="mt-3 space-y-1 border-t border-line pt-3 text-sm">
               <Link href={APPROVALS_HREF} className="flex justify-between hover:text-brand">
-                <span className="text-ink-2">Approval Queue</span>
+                <span className="text-ink-2">Apply queues</span>
                 <span className="font-medium">{pendingApprovals} waiting</span>
               </Link>
               <p className="flex justify-between">
-                <span className="text-ink-2">Job / gig applications</span>
+                <span className="text-ink-2">Job applications</span>
                 <span className="font-medium">Semi-Automation</span>
               </p>
             </div>
@@ -446,6 +484,7 @@ export default async function MissionControlPage({ searchParams }: { searchParam
           <section className="card card-pad">
             <CardHeader title="Brief history" icon="news" />
             <form className="mb-3 flex gap-2" action="/mission">
+              <input type="hidden" name="view" value="dashboard" />
               <input name="q" defaultValue={query} placeholder="Search past briefs" maxLength={80} className="field !min-h-[34px] text-sm" />
               <button className="btn btn-ghost btn-sm">Search</button>
             </form>
@@ -469,7 +508,7 @@ export default async function MissionControlPage({ searchParams }: { searchParam
         </div>
 
         <p className="flex items-center gap-1.5 text-xs text-ink-3">
-          <Icon name="shield" size={13} /> Agents only draft and recommend. Nothing irreversible happens without your approval.
+          <Icon name="shield" size={13} /> Bots only draft and recommend. Nothing irreversible happens without your approval.
         </p>
       </div>
     </div>
@@ -481,18 +520,18 @@ function e(v: unknown): boolean {
 }
 
 function AgentPill({ live, paused, step }: { live: boolean; paused: boolean; step: number }) {
-  return <Pill color={!live ? "var(--c-grey)" : paused ? "var(--c-orange)" : "var(--c-green)"}>{!live ? `Step ${step}` : paused ? "Paused" : "Live"}</Pill>;
+  return <Pill color={!live ? "var(--c-grey)" : paused ? "var(--c-warn)" : "var(--c-green)"}>{!live ? `Step ${step}` : paused ? "Paused" : "Live"}</Pill>;
 }
 
 /** What an agent judges with the AI model (or that it runs on rules), and its Run now and Pause buttons. */
 function AgentWork({ agent: a, live, paused, aiOn }: { agent: (typeof AGENTS)[number]; live: boolean; paused: boolean; aiOn: boolean }) {
-  if (!live) return <p className="text-xs text-ink-3">Its work runs inside the Chief of Staff until it ships as its own agent.</p>;
+  if (!live) return <p className="text-xs text-ink-3">Its work runs inside the Chief of Staff until it ships as its own bot.</p>;
   return (
     <>
       <p className="flex flex-wrap items-center gap-1.5 text-xs text-ink-3">
         {a.ai ? (
           <>
-            <Pill color={aiOn ? "var(--c-purple)" : "var(--c-grey)"}>{aiOn ? `AI: ${aiName()}` : "AI off: rules only"}</Pill>
+            <Pill color={aiOn ? "var(--c-ai)" : "var(--c-grey)"}>{aiOn ? `AI: ${aiName()}` : "AI off: rules only"}</Pill>
             <span className="min-w-0 flex-1 basis-40 break-words">{a.ai}</span>
           </>
         ) : (
@@ -506,7 +545,7 @@ function AgentWork({ agent: a, live, paused, aiOn }: { agent: (typeof AGENTS)[nu
         <RunNowButton agent={a.id} />
         <PauseToggle agent={a.id} paused={paused} />
       </div>
-      {/* The Mentor with fresh data from the Scout, your job emails and the Analyst. */}
+      {/* The Career Mentor with fresh data from the Scout, your job emails and the Analyst. */}
       {a.id === "mentor" && <RefreshMentorButton />}
     </>
   );

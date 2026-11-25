@@ -98,7 +98,7 @@ export interface QaInput {
   connections: readonly { provider: string; status: "active" | "error"; lastSyncAt: string | null; lastError?: string | null }[];
   applications: readonly { role: string }[];
   approvals: readonly { status: string; createdAt: string }[];
-  /** Mentor insights from the last two weeks. */
+  /** Career Mentor insights from the last two weeks. */
   insights: readonly { area: string; status: string; forDate: LocalDate }[];
   paused: readonly { agent: AgentId; paused: boolean; updatedAt: string }[];
   /** When each AI call was made (ISO), for the daily limit. */
@@ -166,7 +166,7 @@ export function qaReview(input: QaInput): QaReport {
   const checks: QaCheck[] = [];
   // At most four lines of evidence; when there is more, the last line says how much.
   const add = (f: Omit<QaFinding, "weeks">) => found.push({ ...f, evidence: (f.evidence.length > 4 ? [...f.evidence.slice(0, 3), `and ${f.evidence.length - 3} more`] : f.evidence).map((e) => clip(e)) });
-  const check = (area: QaArea, name: string, ok: boolean, note: string) => checks.push({ area, name, ok, note: clip(note, 160) });
+  const check = (area: QaArea, name: string, ok: boolean, note: string) => checks.push({ area, name, ok, note: clip(note, 200) });
 
   const all = pairRuns(input.runs.filter((r) => dayOf(r.at) >= from), now.getTime());
   // The review itself and the two self-tests are judged on their own, not as agent work.
@@ -333,14 +333,14 @@ export function qaReview(input: QaInput): QaReport {
     const label = c.provider === "gmail_imap" || c.provider === "google" ? "Gmail" : c.provider;
     const age = c.lastSyncAt ? (now.getTime() - Date.parse(c.lastSyncAt)) / 3_600_000 : Infinity;
     if (c.status === "error") add({ key: `conn:error:${c.provider}`, area: "data", severity: "high", title: `The ${label} connection has an error`, evidence: [c.lastError ? clip(c.lastError, 160) : "The last sync failed", c.lastSyncAt ? `Last good sync ${when(c.lastSyncAt)}` : "Never synced"], fix: "Open Connectors and reconnect it. Until then Inbox and the Applications tracker read old email." });
-    else if (age > 50) add({ key: `conn:stale:${c.provider}`, area: "data", severity: "medium", title: `${label} has not synced for ${Math.floor(age / 24)} days`, evidence: [c.lastSyncAt ? `Last sync ${when(c.lastSyncAt)}` : "Never synced"], fix: "Press Sync now in Mission Control. If it fails, the Email Agent's run trace says why." });
+    else if (age > 50) add({ key: `conn:stale:${c.provider}`, area: "data", severity: "medium", title: `${label} has not synced for ${Math.floor(age / 24)} days`, evidence: [c.lastSyncAt ? `Last sync ${when(c.lastSyncAt)}` : "Never synced"], fix: "Press Sync now in Mission Control. If it fails, the Email bot's run trace says why." });
   }
   const badConn = found.filter((f) => f.key.startsWith("conn:")).length;
   check("data", "Connections are healthy and fresh", badConn === 0, input.connections.length ? (badConn ? `${badConn} of ${input.connections.length} need attention` : `${plural(input.connections.length, "connection")} synced within two days`) : "No connection set up");
 
   // ---- your queues
   const unnamed = input.applications.filter((a) => a.role === ROLE_NOT_LISTED).length;
-  if (unnamed) add({ key: "data:roles", area: "pipeline", severity: unnamed >= 5 ? "medium" : "low", title: `${plural(unnamed, "application")} still ${unnamed === 1 ? "has" : "have"} no role`, evidence: [`${unnamed} of ${input.applications.length} on the Applications board say "${ROLE_NOT_LISTED}"`], fix: "Type each once under Applications → Fill in the role. Results by role, follow-ups and the Mentor all need it." });
+  if (unnamed) add({ key: "data:roles", area: "pipeline", severity: unnamed >= 5 ? "medium" : "low", title: `${plural(unnamed, "application")} still ${unnamed === 1 ? "has" : "have"} no role`, evidence: [`${unnamed} of ${input.applications.length} on the Applications board say "${ROLE_NOT_LISTED}"`], fix: "Type each once under Applications → Fill in the role. Results by role, follow-ups and the Career Mentor all need it." });
   check("pipeline", "Every application names its role", unnamed === 0, `${input.applications.length - unnamed} of ${input.applications.length} named`);
 
   const waitDays = (iso: string) => Math.floor((now.getTime() - Date.parse(iso)) / 86_400_000);
@@ -354,8 +354,8 @@ export function qaReview(input: QaInput): QaReport {
   const dismissed = new Map<string, number>();
   for (const i of input.insights) if (i.status === "dismissed" && i.forDate >= addDays(today, -13)) dismissed.set(i.area, (dismissed.get(i.area) ?? 0) + 1);
   const tuned = [...dismissed.entries()].filter(([, n]) => n >= 3);
-  for (const [area, n] of tuned) add({ key: `mentor:dismissed:${area}`, area: "pipeline", severity: "low", title: `You dismissed ${n} Mentor insights about ${area} in two weeks`, evidence: [`${n} marked Not useful`], fix: "The Mentor's rule for this subject is probably off for you. Note what was wrong with the next one, and the rule can be tuned." });
-  check("pipeline", "The Mentor's insights are landing", tuned.length === 0, tuned.length ? `Often dismissed: ${tuned.map(([a]) => a).join(", ")}` : "No subject dismissed three times");
+  for (const [area, n] of tuned) add({ key: `mentor:dismissed:${area}`, area: "pipeline", severity: "low", title: `You dismissed ${n} Career Mentor insights about ${area} in two weeks`, evidence: [`${n} marked Not useful`], fix: "The Career Mentor's rule for this subject is probably off for you. Note what was wrong with the next one, and the rule can be tuned." });
+  check("pipeline", "The Career Mentor's insights are landing", tuned.length === 0, tuned.length ? `Often dismissed: ${tuned.map(([a]) => a).join(", ")}` : "No subject dismissed three times");
 
   const longPaused = input.paused.filter((p) => p.paused && waitDays(p.updatedAt) >= 7);
   for (const p of longPaused) add({ key: `paused:${p.agent}`, area: "reliability", severity: "low", title: `${nameOf(p.agent)} has been paused for ${plural(waitDays(p.updatedAt), "day")}`, evidence: [`Paused since ${when(p.updatedAt)}`], fix: "Resume it in Mission Control if the pause was not meant to last." });

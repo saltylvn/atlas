@@ -60,7 +60,7 @@ export interface BriefReport {
   matches?: CareerSection | null;
   /** The Finance Agent's bills, payment alerts and deals (weekdays). Added in build step 6. */
   finance?: FinanceSection | null;
-  /** The Mentor's insights for this brief (weekdays), at most two. Added with the Career desk. */
+  /** The Career Mentor's insights for this brief (weekdays), at most two. Added with the Career desk. */
   mentor?: { title: string; body: string; action: string }[];
   reports: StandardReport[];
   /** Anything that failed or was skipped. Shown in the brief, never silently dropped. */
@@ -140,7 +140,7 @@ export function assembleReport(input: AssembleInput): BriefReport {
   const career = input.career;
   const hotHeadline = hot.length ? `${plural(hot.length, "hot item")}: ${hot.map((h) => h.company).join(", ")}.` : "No replies, interviews or offers waiting.";
   if (career && "missing" in career) {
-    const msg = career.missing === "skipped" ? `Applications Agent skipped (${career.why}); no new matches in this brief.` : `Applications Agent failed: ${career.why}`;
+    const msg = career.missing === "skipped" ? `Applications bot skipped (${career.why}); no new matches in this brief.` : `Applications bot failed: ${career.why}`;
     careerErrors.push(msg);
   }
   if (career && !("missing" in career)) matches = career.section;
@@ -162,7 +162,7 @@ export function assembleReport(input: AssembleInput): BriefReport {
   let calendar: BriefReport["calendar"] = null;
   const cal = input.calendar;
   if ("missing" in cal) {
-    const msg = cal.missing === "skipped" ? `Calendar Agent skipped (${cal.why}); the calendar is left out of this brief.` : `Calendar Agent failed: ${cal.why}`;
+    const msg = cal.missing === "skipped" ? `Calendar bot skipped (${cal.why}); the calendar is left out of this brief.` : `Calendar bot failed: ${cal.why}`;
     errors.push(msg);
     reports.push({ agent: "calendar", headline: msg, details: [], needsApproval: [], errors: [msg] });
   } else {
@@ -177,7 +177,7 @@ export function assembleReport(input: AssembleInput): BriefReport {
   let email: BriefReport["email"] = null;
   if (!light && input.email) {
     if ("missing" in input.email) {
-      const msg = input.email.missing === "skipped" ? `Email Agent skipped (${input.email.why}); the inbox is left out of this brief.` : `Email Agent failed: ${input.email.why}`;
+      const msg = input.email.missing === "skipped" ? `Email bot skipped (${input.email.why}); the inbox is left out of this brief.` : `Email bot failed: ${input.email.why}`;
       errors.push(msg);
       reports.push({ agent: "email", headline: msg, details: [], needsApproval: [], errors: [msg] });
     } else {
@@ -190,7 +190,7 @@ export function assembleReport(input: AssembleInput): BriefReport {
   // News: the News Agent's report.
   let stories: BriefStory[] = [];
   if ("missing" in input.news) {
-    const msg = input.news.missing === "skipped" ? `News Agent skipped (${input.news.why}); no stories in this brief.` : `News Agent failed: ${input.news.why}`;
+    const msg = input.news.missing === "skipped" ? `News bot skipped (${input.news.why}); no stories in this brief.` : `News bot failed: ${input.news.why}`;
     errors.push(msg);
     reports.push({ agent: "news", headline: msg, details: [], needsApproval: [], errors: [msg] });
   } else {
@@ -206,7 +206,7 @@ export function assembleReport(input: AssembleInput): BriefReport {
   let finance: BriefReport["finance"] = null;
   const fin = light ? null : input.finance;
   if (fin && "missing" in fin) {
-    const msg = fin.missing === "skipped" ? `Finance Agent skipped (${fin.why}); only your Renewals list is in this brief.` : `Finance Agent failed: ${fin.why}`;
+    const msg = fin.missing === "skipped" ? `Finance bot skipped (${fin.why}); only your Renewals list is in this brief.` : `Finance bot failed: ${fin.why}`;
     errors.push(msg);
     reports.push({ agent: "finance", headline: msg, details: bills.map((b) => `${b.title} ${b.when}`), needsApproval: [], errors: [msg] });
   } else if (fin) {
@@ -263,7 +263,7 @@ export function searchText(r: BriefReport): string {
     ...r.bills.map((b) => b.title),
     ...(r.email?.waiting.map((w) => `${w.fromName} ${w.subject}`) ?? []),
     ...(r.email?.jobs?.map((j) => `${j.fromName} ${j.subject}`) ?? []),
-    ...[...(r.matches?.fullTime ?? []), ...(r.matches?.gigs ?? [])].map((m) => `${m.title} ${m.company}`),
+    ...(r.matches?.fullTime ?? []).map((m) => `${m.title} ${m.company}`),
     ...[...(r.finance?.alerts ?? []), ...(r.finance?.bills ?? [])].map((b) => `${b.name} ${b.subject}`),
     ...(r.finance?.deals ?? []).map((d) => `${d.store} ${d.subject}`),
   ]

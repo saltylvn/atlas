@@ -25,6 +25,7 @@ import { emailAgentWork, runEmailAgent } from "./email";
 import { financeAgentWork, runFinanceAgent } from "./finance";
 import { instructions } from "./instructions";
 import { newsAgentWork, runNewsAgent } from "./news";
+import { watchdog } from "./watchdog";
 import { isPaused, logRun, NO_MODEL } from "./log";
 import { tracer } from "./trace";
 
@@ -109,29 +110,30 @@ export async function runChiefOfStaff(ctx: Context, slot: BriefSlot, trigger: Tr
 
   await logRun(ctx, { runId, agent, task, status: "started", trigger, detail: "", ...NO_MODEL });
   const t = tracer();
+  const stopWatchdog = watchdog(ctx, { runId, agent, task, trigger }, t);
   // What a specialist reported, for the trace: its headline, or why it did not report.
   const said = (r: { report: { headline: string } } | AgentMissing | null) => (!r ? "not part of this brief" : "missing" in r ? `${r.missing}: ${r.why}` : r.report.headline);
   try {
     // Specialists report first, each with only the context it needs: the Email Agent reads
     // the inbox (weekdays), the Calendar Agent gets the tracked interviews, the News Agent
     // reads its own feeds. The inbox syncs before the brief's other inputs are gathered.
-    const email = slot === "saturday" ? null : await t.step("Ask the Email Agent", () => runEmailAgent(ctx, slot, { trigger, honorPause: true, sync: opts.service }), said);
+    const email = slot === "saturday" ? null : await t.step("Ask the Email bot", () => runEmailAgent(ctx, slot, { trigger, honorPause: true, sync: opts.service }), said);
     const bundle = await t.step("Gather tasks, people, renewals and the career tracker", () => loadBrief(ctx), (b) => `${b.renewalsDue.length} renewals due, ${b.snapshot?.applications.length ?? 0} tracked applications`);
     // The Analyst needs nothing from the others (it reads what the Scout recorded at the
     // syncs), so it works alongside them. Its report is reused within a day.
     const persist = opts.service ?? ctx.store;
     const analystRun = slot === "saturday" ? Promise.resolve(null) : t.step("Ask the Analyst", () => runAnalyst(ctx, { trigger, honorPause: true, persist, reuseToday: trigger === "schedule" || slot !== "morning" }), said);
     const [calendar, news, career, finance] = await Promise.all([
-      t.step("Ask the Calendar Agent", () => runCalendarAgent(ctx, slot, { trigger, interviews: interviewsFrom(bundle.snapshot), honorPause: true }), said),
-      t.step("Ask the News Agent", () => runNewsAgent(ctx, slot, { trigger, honorPause: true }), said),
-      slot === "saturday" ? Promise.resolve(null) : t.step("Ask the Applications Agent", () => runCareerAgent(ctx, slot, { trigger, honorPause: true, persist: opts.service ?? ctx.store }), said),
+      t.step("Ask the Calendar bot", () => runCalendarAgent(ctx, slot, { trigger, interviews: interviewsFrom(bundle.snapshot), honorPause: true }), said),
+      t.step("Ask the News bot", () => runNewsAgent(ctx, slot, { trigger, honorPause: true }), said),
+      slot === "saturday" ? Promise.resolve(null) : t.step("Ask the Applications bot", () => runCareerAgent(ctx, slot, { trigger, honorPause: true, persist: opts.service ?? ctx.store }), said),
       // The Finance Agent reads the inbox the Email Agent just synced.
-      slot === "saturday" ? Promise.resolve(null) : t.step("Ask the Finance Agent", () => runFinanceAgent(ctx, { trigger, honorPause: true }), said),
+      slot === "saturday" ? Promise.resolve(null) : t.step("Ask the Finance bot", () => runFinanceAgent(ctx, { trigger, honorPause: true }), said),
     ]);
-    // The Mentor goes last: it reviews everything, including the Analyst's report and
+    // The Career Mentor goes last: it reviews everything, including the Analyst's report and
     // what the Applications Agent just did. Weekdays only.
     const analyst = await analystRun;
-    const mentor = slot === "saturday" ? null : await t.step("Ask the Mentor", () => runMentor(ctx, slot === "afternoon" ? "midday" : "morning", { trigger, honorPause: true, persist }), said);
+    const mentor = slot === "saturday" ? null : await t.step("Ask the Career Mentor", () => runMentor(ctx, slot === "afternoon" ? "midday" : "morning", { trigger, honorPause: true, persist }), said);
 
     const report = await t.step(
       "Assemble the brief, Hot List first",
@@ -139,7 +141,7 @@ export async function runChiefOfStaff(ctx: Context, slot: BriefSlot, trigger: Tr
       (r) => `${r.hotList.length} on the Hot List, ${r.reports.length} specialist reports, ${r.errors.length} problems reported in the brief`,
     );
     // The desk reports like every specialist: a failure is named, never dropped.
-    for (const [name, r] of [["Analyst", analyst], ["Mentor", mentor]] as const) {
+    for (const [name, r] of [["Analyst", analyst], ["Career Mentor", mentor]] as const) {
       if (!r) continue;
       if ("missing" in r) {
         if (r.missing === "failed") report.errors.push(`${name} failed: ${r.why}`);
@@ -198,6 +200,7 @@ export async function runChiefOfStaff(ctx: Context, slot: BriefSlot, trigger: Tr
     ]
       .filter(Boolean)
       .join(", ");
+    stopWatchdog();
     await logRun(ctx, { runId, agent, task, status: "succeeded", trigger, detail, ...usage, ...t.finish() });
 
     // The phone ping is for scheduled briefs; a manual run happens with the app open.
@@ -207,6 +210,7 @@ export async function runChiefOfStaff(ctx: Context, slot: BriefSlot, trigger: Tr
     return { status: "succeeded", report, costUsd: usage.costUsd };
   } catch (err) {
     const why = (err as Error).message?.slice(0, 300) || "unknown error";
+    stopWatchdog();
     await logRun(ctx, { runId, agent, task, status: "failed", trigger, detail: why, ...NO_MODEL, ...t.finish() });
     return { status: "failed", why };
   }

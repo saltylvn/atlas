@@ -1,4 +1,5 @@
 import { redirect } from "next/navigation";
+import { afterSignIn } from "@/lib/mcp/consentReturn";
 import { connection } from "next/server";
 import { mode } from "@/lib/env";
 import { createUserClient } from "@/lib/supabase/server";
@@ -13,7 +14,7 @@ export default async function MfaPage() {
   if (mode() !== "live") redirect("/");
   const db = await createUserClient();
   const { data: aal } = await db.auth.mfa.getAuthenticatorAssuranceLevel();
-  if (aal?.currentLevel === "aal2") redirect("/");
+  if (aal?.currentLevel === "aal2") redirect(await afterSignIn(false));
   const { data: factors } = await db.auth.mfa.listFactors();
   const verified = factors?.totp.find((f) => f.status === "verified");
 

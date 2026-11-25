@@ -10,6 +10,10 @@ import { Icon } from "@/components/Icon";
 import { dailyMentoring, MENTOR_SLOT_LABEL, MENTOR_SLOT_TIME, type MentorInsight } from "@/lib/domain/mentor";
 import { shortDate } from "@/lib/domain/dates";
 import { CardHeader, Empty, PageHeader, Pill } from "@/components/ui";
+import { ProofCard } from "@/components/ProofCard";
+import { WeeklyPlanCard } from "@/components/WeeklyPlanCard";
+import { weeklyPlanOf } from "@/lib/domain/weeklyPlan";
+import { proofPlan } from "@/lib/domain/gapPlan";
 
 export const metadata = { title: "Growth" };
 
@@ -30,14 +34,14 @@ const clock = (hhmm: string) => {
   return `${h % 12 || 12}:${String(m).padStart(2, "0")} ${h < 12 ? "AM" : "PM"}`;
 };
 
-/** One Mentor insight: open ones carry their evidence and the Done / Not useful buttons; answered ones say how. */
+/** One Career Mentor insight: open ones carry their evidence and the Done / Not useful buttons; answered ones say how. */
 function InsightCard({ insight: i, updated }: { insight: MentorInsight; updated: boolean }) {
   const open = i.status === "new";
   return (
     <li className="rounded-lg border border-line bg-surface p-3">
       <div className="flex flex-wrap items-center gap-2">
-        {!open && <Pill color={i.status === "done" ? "var(--c-green)" : "var(--c-grey)"}>{i.status === "done" ? "Done" : "Not useful"}</Pill>}
-        {updated && <Pill color="var(--c-blue)">Updated</Pill>}
+        {!open && <Pill color={i.status === "done" ? "var(--c-green)" : "var(--c-grey)"}>{i.status === "done" ? "Action taken" : "Not useful"}</Pill>}
+        {updated && <Pill color="var(--c-indigo)">Updated</Pill>}
         <span className="text-xs text-ink-3">{shortDate(i.forDate)}</span>
         <span className="text-xs text-ink-3">{i.writer === "model" ? "Judged by the AI model from the facts below" : "Ranked by rules"}</span>
       </div>
@@ -70,7 +74,7 @@ function InsightCard({ insight: i, updated }: { insight: MentorInsight; updated:
 }
 
 /**
- * The Growth tab: the Mentor's daily mentoring first, then what it rests on: your projects,
+ * The Growth tab: the Career Mentor's daily mentoring first, then what it rests on: your projects,
  * the market, the skills that keep appearing in your matched jobs, your gaps, and LinkedIn
  * tune-ups for your target roles.
  */
@@ -87,6 +91,9 @@ export default async function GrowthPage() {
   const carried = insights.filter((i) => i.status === "new" && i.forDate < today).slice(0, 4);
   // A replaced insight was said again with fresher numbers: the newer one stands in for it.
   const earlier = insights.filter((i) => (i.status === "done" || i.status === "dismissed") && i.forDate < today).slice(0, 6);
+  // Action Taken clears an insight from the list into this tally (owner's request, 23 Nov 2026).
+  const takenToday = insights.filter((i) => i.status === "done" && i.forDate === today);
+  const answeredToday = insights.filter((i) => (i.status === "done" || i.status === "dismissed") && i.forDate === today).length;
   const updatedKeys = new Set(insights.filter((i) => i.status === "replaced").map((i) => i.key));
   const pct = (n: number) => `${Math.round(n * 100)}%`;
   const withSkills = matches.filter((m) => (m.skills ?? []).length > 0);
@@ -105,11 +112,16 @@ export default async function GrowthPage() {
     <div className="space-y-5">
       <PageHeader
         title="Growth"
-        sub={`Your Mentor's daily reviews, then what they rest on: skills employers ask for across ${withSkills.length} matched job${withSkills.length === 1 ? "" : "s"} in the last 60 days, for your ${roles.length} target roles.`}
+        sub={`Your Career Mentor's daily reviews, then what they rest on: skills employers ask for across ${withSkills.length} matched job${withSkills.length === 1 ? "" : "s"} in the last 60 days, for your ${roles.length} target roles.`}
         action={
-          <Link href="/roles" className="btn btn-ghost btn-sm">
-            Target roles
-          </Link>
+          <span className="flex flex-wrap gap-2">
+            <Link href="/career/map" className="btn btn-ghost btn-sm">
+              Career Map
+            </Link>
+            <Link href="/career/roles" className="btn btn-ghost btn-sm">
+              Target Roles
+            </Link>
+          </span>
         }
       />
 
@@ -125,21 +137,45 @@ export default async function GrowthPage() {
         <CardHeader
           title="Daily mentoring"
           icon="sparkle"
-          hint="Your Mentor reviews the whole job hunt three times a day: morning priority, midday check, evening review. Refresh and review brings in fresh postings, your latest job emails and a new market report first. It advises; it changes nothing."
+          hint="Your Career Mentor reviews the whole job hunt three times a day: morning priority, midday check, evening review. Refresh and review brings in fresh postings, your latest job emails and a new market report first. It advises; it changes nothing."
         />
         <RefreshMentorButton />
+        {answeredToday > 0 && (
+          <details className="mt-3 rounded-lg border border-line bg-surface-2 p-3">
+            <summary className="flex min-h-11 cursor-pointer items-center gap-2 text-sm font-medium">
+              <span aria-hidden="true" className="text-[var(--c-green)]">
+                ✓
+              </span>
+              {takenToday.length} action{takenToday.length === 1 ? "" : "s"} taken today
+              {answeredToday > takenToday.length && <span className="text-xs font-normal text-ink-3">· {answeredToday - takenToday.length} set aside as not useful</span>}
+            </summary>
+            {takenToday.length > 0 && (
+              <ul className="mt-2 space-y-2 text-sm">
+                {takenToday.map((i) => (
+                  <li key={i.id}>
+                    <p className="font-medium break-words">{i.title}</p>
+                    {i.ownerNote && <p className="text-xs text-ink-2 break-words">You did: {i.ownerNote}</p>}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </details>
+        )}
         <ol className="mt-4 space-y-4">
           {mentoring.map((m) => (
-            <li key={m.slot} className="border-l-2 pl-3" style={{ borderColor: m.state === "spoke" ? "var(--c-purple)" : "var(--line)" }}>
+            <li key={m.slot} className="border-l-2 pl-3" style={{ borderColor: m.state === "spoke" ? "var(--c-ai)" : "var(--line)" }}>
               <p className="flex flex-wrap items-center gap-2 text-sm">
                 <span className="font-semibold">{MENTOR_SLOT_LABEL[m.slot]}</span>
                 <span className="text-xs text-ink-3">{clock(MENTOR_SLOT_TIME[m.slot])}</span>
                 {m.state === "ahead" && <Pill color="var(--c-grey)">Still to come</Pill>}
                 {m.state === "quiet" && <span className="text-xs text-ink-3">Nothing to flag</span>}
               </p>
-              {m.insights.length > 0 && (
+              {m.state === "spoke" && m.insights.every((i) => i.status !== "new") && <p className="mt-1 text-xs text-ink-3">All cleared</p>}
+              {m.insights.some((i) => i.status === "new") && (
                 <ul className="mt-2 space-y-3">
-                  {m.insights.map((i) => (
+                  {m.insights
+                    .filter((i) => i.status === "new")
+                    .map((i) => (
                     <InsightCard key={i.id} insight={i} updated={updatedKeys.has(i.key)} />
                   ))}
                 </ul>
@@ -147,7 +183,7 @@ export default async function GrowthPage() {
             </li>
           ))}
         </ol>
-        {insights.length === 0 && <Empty>No insights yet. The Mentor speaks at the next brief, or press Refresh and review.</Empty>}
+        {insights.length === 0 && <Empty>No insights yet. The Career Mentor speaks at the next brief, or press Refresh and review.</Empty>}
         {carried.length > 0 && (
           <div className="mt-5">
             <p className="eyebrow mb-2">Still open from earlier days</p>
@@ -164,14 +200,21 @@ export default async function GrowthPage() {
             <ul className="mt-1 space-y-1 text-sm">
               {earlier.map((i) => (
                 <li key={i.id} className="flex flex-wrap items-baseline gap-2">
-                  <Pill color={i.status === "done" ? "var(--c-green)" : "var(--c-grey)"}>{i.status === "done" ? "Done" : "Dismissed"}</Pill>
-                  <span className="min-w-0 flex-1 break-words text-ink-2">{i.title}</span>
+                  <Pill color={i.status === "done" ? "var(--c-green)" : "var(--c-grey)"}>{i.status === "done" ? "Action taken" : "Not useful"}</Pill>
+                  <span className="min-w-0 flex-1 break-words text-ink-2">
+                    {i.title}
+                    {i.ownerNote ? <span className="block text-xs text-ink-3">You did: {i.ownerNote}</span> : null}
+                  </span>
                 </li>
               ))}
             </ul>
           </details>
         )}
       </section>
+
+      <WeeklyPlanCard plan={weeklyPlanOf(settings.weeklyPlan)} tasks={await store.tasks.list().catch(() => [])} />
+
+      <ProofCard plan={proofPlan(settings.careerProof)} today={today} />
 
       <section id="projects" className="card card-pad scroll-mt-20">
         <CardHeader
@@ -286,7 +329,7 @@ export default async function GrowthPage() {
       <section id="gaps" className="card card-pad scroll-mt-20">
         <CardHeader title="Your skill gaps" icon="alert" hint="Asked for most often, weighted to your top roles, that you have not marked as yours" />
         {withSkills.length === 0 ? (
-          <Empty>Gaps appear after the Applications Agent&apos;s next runs, as it notes the skills each matched job asks for.</Empty>
+          <Empty>Gaps appear after the Applications bot&apos;s next runs, as it notes the skills each matched job asks for.</Empty>
         ) : gaps.length === 0 ? (
           <Empty>No gaps: you have every skill your matches ask for most.</Empty>
         ) : (
@@ -346,7 +389,7 @@ export default async function GrowthPage() {
         <SkillPicker groups={groups} have={have} />
       </section>
       <section className="card card-pad">
-        <CardHeader title="Your LinkedIn text" icon="people" hint="For the Mentor's review: whether your first lines say your target role, and whether the skills the market asks for are there" />
+        <CardHeader title="Your LinkedIn text" icon="people" hint="For the Career Mentor's review: whether your first lines say your target role, and whether the skills the market asks for are there" />
         <ProfileTextForm text={settings.linkedinProfile ?? ""} />
       </section>
     </div>
