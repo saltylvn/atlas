@@ -4,7 +4,10 @@ A multi-agent system I designed, built and run in production: a personal chief o
 
 An orchestrator directs specialist agents that read my calendar, inbox, news feeds and bills, write two briefs a day, answer questions from my own data with their sources, and mentor me daily. Agents draft, plan and recommend. Nothing leaves the app without my approval.
 
-![Atlas: a plain-text summary of the system, with 634 tests, 441 eval cases, two briefs a day and about 10 hours saved a week](docs/showcase/overview.png)
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/showcase/atlas-system-map-dark.png">
+  <img alt="Atlas system map: one orchestrator, a Daily desk and a Career desk, five AI agents, the data pipeline, the MCP server and the QA bot, with a sample run trace and the system's counts" src="docs/showcase/atlas-system-map.png">
+</picture>
 
 **Status:** live in production for one owner. The deployment sits behind sign-in with two factors, so there is no public demo link. `npm run dev` starts a demo with fictional data and no keys.
 
@@ -48,6 +51,29 @@ Estimated time saved: about 10 hours a week across the daily automations. The pe
 ![Mission Control: the orchestration map with a run in progress, and a run trace](docs/showcase/mission-control.png)
 
 One orchestrator routes scheduled (Vercel cron) and on-demand work to the specialists. Every run has a deadline, 60 seconds on a page and 300 on a schedule, and every step is traced: which agent, rules or model, and how long it took. Mission Control draws its live map from that activity log, so there is no separate telemetry to maintain. A QA agent reads the same log and reviews the whole system once a week.
+
+### The agent loop
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/showcase/atlas-2-technical.png">
+  <img alt="Atlas 2.0 build notes: the rule for what counts as an agent, the 118-line agent loop, the typed state, the number check, the module boundaries, and what broke with each fix" src="docs/showcase/atlas-2-technical-light.png">
+</picture>
+
+Five AI agents run on one loop of 118 lines. Each cycle the model returns one action, a tool call or "done", that must match a zod schema. "Done" is refused while checks are open, a reviewer runs before anything is accepted (code first, then a judge model), and the state is saved after every step. Each run has a step cap and a model-call budget.
+
+### The MCP server
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/showcase/atlas-mcp-server-dark.png">
+  <img alt="The Atlas MCP server: one call end to end from Claude on an iPhone, the one-time OAuth sign-in, where the server sits in Atlas, five decisions with reasons, and the limits on every call" src="docs/showcase/atlas-mcp-server.png">
+</picture>
+
+Claude reads Atlas through a remote MCP server: 11 read-only tools behind OAuth 2.1 with PKCE, a stateless endpoint, and an audit row for every call. A test fails the build if a tool ever writes. How it was built, and every decision: [docs/MCP-BUILD.md](docs/MCP-BUILD.md).
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/showcase/atlas-mcp-server-technical.png">
+  <img alt="The MCP build for engineers: the OAuth flow on the wire with status codes, the gate and its decision table, the tool wrapper, the test that enforces read-only, and the known limits" src="docs/showcase/atlas-mcp-server-technical-light.png">
+</picture>
 
 ### Rules compute the facts, the model makes the judgment calls
 
