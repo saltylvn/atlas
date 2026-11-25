@@ -8,6 +8,22 @@ An orchestrator directs specialist agents that read my calendar, inbox, news fee
 
 **Status:** live in production for one owner. The deployment sits behind sign-in with two factors, so there is no public demo link. `npm run dev` starts a demo with fictional data and no keys.
 
+## Since this snapshot (24 November 2026)
+
+This public repo is a clean-history copy of the code as of 18 November 2026. The private repo has moved on since; these are the biggest changes, not yet in this copy:
+
+- **Two desks, three kinds of worker.** A Daily desk (briefs, inbox, plan, Google Calendar, renewals, news) and a Career desk (live labor-market data, role targeting, a career map, a skills roadmap with proof projects). Atlas now names each worker by who picks the next step: 8 **workflows** (code, in a fixed order), 10 **bots** (code, with at most one bounded AI judgment) and 5 **AI agents** (the model picks its own next tool in a loop).
+- **5 AI agents**, each a tool-using loop with a step cap, an AI-call budget, a rules review and a separate AI judge. Every tool is read-only.
+  - **Researcher:** researches a company on the public web; every line cites a fact it read.
+  - **Tailor:** maps each must-have in a posting to proof from my resume, or names it a gap.
+  - **Coach:** prepares an interview with a true story for each likely question.
+  - **Planner:** proposes three moves for my week, each citing its numbers; I approve before anything reaches my calendar.
+  - **Nudger:** rewrites a waiting application follow-up with one specific, cited reason to reply.
+  - A night shift runs the Researcher, Tailor and Nudger while I sleep, and the Planner on Sunday.
+- **An MCP server for Claude:** Claude connects over OAuth 2.1 with PKCE and gets 10 read-only tools (apply queue, job snapshot, applications, funnel, market, proof project, interview prep, a spoken practice interview, weekly plan and search over my resumes), so I can use Atlas from any Claude app, by voice. Every call is audited and rate-limited.
+- **Google Calendar** over OAuth, with events at their real length on the plan.
+- **By the numbers:** 1,620 tests, 44 tables with row-level security, 47 migrations and 200 merged pull requests.
+
 ## What I built
 
 | Area | What it does | Where to look |
